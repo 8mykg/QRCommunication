@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="ja">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>光学データ通信システム (Optical Streamer)</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1e1e2e;
+            color: #cdd6f4;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            color: #89b4fa;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: #313244;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            max-width: 500px;
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-top: 10px;
+            font-weight: bold;
+            color: #a6adc8;
+        }
+
+        select,
+        input[type="number"],
+        input[type="file"],
+        textarea {
+            width: 100%;
+            padding: 10px;
+            margin-top: 5px;
+            border-radius: 6px;
+            border: 1px solid #45475a;
+            background: #181825;
+            color: #cdd6f4;
+            box-sizing: border-box;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            background: #45475a;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .btn.active {
+            background: #89b4fa;
+            color: #11111b;
+        }
+
+        .btn-start {
+            background: #a6e3a1;
+            color: #11111b;
+            font-size: 1.1em;
+            width: 100%;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .btn-start:hover {
+            background: #94e2d5;
+        }
+
+        #view-area {
+            display: none;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        canvas,
+        video {
+            border-radius: 8px;
+            border: 2px solid #89b4fa;
+            max-width: 100%;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>🌐 光学データ通信システム</h1>
+
+    <div class="card">
+        <label>1. 通信モード選択</label>
+        <div class="btn-group">
+            <button class="btn active" id="btn-mode-send" onclick="setMode('send')">📤 送信 (Sender)</button>
+            <button class="btn" id="btn-mode-receive" onclick="setMode('receive')">📥 受信 (Receiver)</button>
+        </div>
+
+        <div id="section-sender-options">
+            <label>2. 送信データ種別</label>
+            <div class="btn-group">
+                <button class="btn active" id="btn-type-text" onclick="setDataType('text')">📄 テキスト</button>
+                <button class="btn" id="btn-type-file" onclick="setDataType('file')">📁 ファイル (画像等)</button>
+            </div>
+
+            <div id="input-text-group">
+                <label for="text-input">送信テキスト:</label>
+                <textarea id="text-input" rows="3" placeholder="ここにメッセージを入力...">Hello Optical Stream!</textarea>
+            </div>
+
+            <div id="input-file-group" style="display:none;">
+                <label for="file-input">送信ファイル選択:</label>
+                <input type="file" id="file-input">
+            </div>
+
+            <label>3. 方式選択</label>
+            <select id="protocol-select">
+                <option value="apriltag" selected>AprilTag (高速・安定)</option>
+                <option value="qr">QRコード (標準)</option>
+            </select>
+
+            <label for="grid-size">4. 画像の数 (グリッドサイズ N×N)</label>
+            <input type="number" id="grid-size" value="3" min="1" max="6">
+            <small style="color: #6c7086;">※ 推奨: 3 (3x3=9個) または 5 (5x5=25個)</small>
+
+            <label for="fps-input">5. 送信速度 (FPS)</label>
+            <input type="number" id="fps-input" value="5" min="1" max="30">
+            <small style="color: #6c7086;">※ 推奨: 5 FPS (カメラ認識が最も安定)</small>
+        </div>
+
+        <label for="camera-select">6. 使用カメラの選択</label>
+        <select id="camera-select">
+            <option value="">カメラを読み込み中...</option>
+        </select>
+
+        <button class="btn btn-start" onclick="startTransmission()">🚀 通信実行 (START)</button>
+        <button class="btn" style="margin-top: 10px; width: 100%; background: #313244;"
+            onclick="alert('オプション機能は準備中です！')">⚙️ オプション設定 (開発中)</button>
+    </div>
+
+    <div id="view-area" class="card">
+        <h3 id="status-label">通信待機中...</h3>
+        <canvas id="send-canvas" style="display:none;"></canvas>
+        <video id="receive-video" autoplay playsinline style="display:none;"></video>
+    </div>
+
+    <script>
+        let currentMode = 'send';
+        let dataType = 'text';
+
+        // モード切替
+        function setMode(mode) {
+            currentMode = mode;
+            document.getElementById('btn-mode-send').classList.toggle('active', mode === 'send');
+            document.getElementById('btn-mode-receive').classList.toggle('active', mode === 'receive');
+            document.getElementById('section-sender-options').style.display = mode === 'send' ? 'block' : 'none';
+        }
+
+        // データ種別切替
+        function setDataType(type) {
+            dataType = type;
+            document.getElementById('btn-type-text').classList.toggle('active', type === 'text');
+            document.getElementById('btn-type-file').classList.toggle('active', type === 'file');
+            document.getElementById('input-text-group').style.display = type === 'text' ? 'block' : 'none';
+            document.getElementById('input-file-group').style.display = type === 'file' ? 'block' : 'none';
+        }
+
+        // 利用可能なカメラの一覧を取得
+        async function loadCameras() {
+            const select = document.getElementById('camera-select');
+            select.innerHTML = '';
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+                videoDevices.forEach((device, index) => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.text = device.label || `カメラ ${index + 1} (${device.deviceId.slice(0, 5)}...)`;
+                    select.appendChild(option);
+                });
+            } catch (err) {
+                select.innerHTML = '<option value="">カメラの取得に失敗しました</option>';
+            }
+        }
+
+        // 実行開始処理
+        function startTransmission() {
+            document.getElementById('view-area').style.display = 'block';
+            const status = document.getElementById('status-label');
+
+            if (currentMode === 'send') {
+                status.innerText = "📤 送信アニメーション再生中...";
+                document.getElementById('send-canvas').style.display = 'inline-block';
+                document.getElementById('receive-video').style.display = 'none';
+                // TODO: キャンバスにQR/AprilTagを描画してタイマーで描画更新(FPS制御)
+            } else {
+                status.innerText = "📥 カメラで解析中...";
+                document.getElementById('send-canvas').style.display = 'none';
+                document.getElementById('receive-video').style.display = 'inline-block';
+                startCamera();
+            }
+        }
+
+        // 受信用カメラの起動
+        async function startCamera() {
+            const cameraId = document.getElementById('camera-select').value;
+            const video = document.getElementById('receive-video');
+
+            const constraints = {
+                video: cameraId ? { deviceId: { exact: cameraId } } : true
+            };
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = stream;
+            } catch (err) {
+                alert("カメラの起動に失敗しました: " + err.message);
+            }
+        }
+        // JavaScriptでのQR描画コード
+        function generateQRCode(elementId, text) {
+            document.getElementById(elementId).innerHTML = ""; // 初期化
+            new QRCode(document.getElementById(elementId), {
+                text: text,
+                width: 256,
+                height: 256,
+                correctLevel: QRCode.CorrectLevel.L // 超高速読み取り用にエラー訂正Lレベル
+            });
+        }
+        // カメラのCanvasからQRコードを高速検知するコード
+        function scanQRCodeFromCanvas(canvasContext, width, height) {
+            const imageData = canvasContext.getImageData(0, 0, width, height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                inversionAttempts: "dontInvert",
+            });
+
+            if (code) {
+                console.log("⚡ QRコード検出成功:", code.data);
+                return code.data;
+            }
+            return null;
+        }
+
+        // ページ読み込み時にカメラ一覧を取得
+        window.onload = () => {
+            loadCameras();
+            // カメラパーミッション要求用に一度呼び出し
+            navigator.mediaDevices.getUserMedia({ video: true }).then(loadCameras).catch(() => { });
+        };
+    </script>
+</body>
+
+</html>
