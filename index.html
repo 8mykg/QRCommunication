@@ -1,12 +1,13 @@
 <!DOCTYPE html>
 <html lang="ja">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>光学データ通信システム (Optical Streamer)</title>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -18,33 +19,18 @@
             flex-direction: column;
             align-items: center;
         }
-
-        h1 {
-            color: #89b4fa;
-            margin-bottom: 20px;
-        }
-
+        h1 { color: #89b4fa; margin-bottom: 20px; }
         .card {
             background: #313244;
             padding: 20px;
             border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
             width: 100%;
             max-width: 500px;
             margin-bottom: 15px;
         }
-
-        label {
-            display: block;
-            margin-top: 10px;
-            font-weight: bold;
-            color: #a6adc8;
-        }
-
-        select,
-        input[type="number"],
-        input[type="file"],
-        textarea {
+        label { display: block; margin-top: 10px; font-weight: bold; color: #a6adc8; }
+        select, input[type="number"], input[type="file"], textarea {
             width: 100%;
             padding: 10px;
             margin-top: 5px;
@@ -54,13 +40,7 @@
             color: #cdd6f4;
             box-sizing: border-box;
         }
-
-        .btn-group {
-            display: flex;
-            gap: 10px;
-            margin-top: 10px;
-        }
-
+        .btn-group { display: flex; gap: 10px; margin-top: 10px; }
         .btn {
             flex: 1;
             padding: 12px;
@@ -72,12 +52,7 @@
             cursor: pointer;
             transition: 0.2s;
         }
-
-        .btn.active {
-            background: #89b4fa;
-            color: #11111b;
-        }
-
+        .btn.active { background: #89b4fa; color: #11111b; }
         .btn-start {
             background: #a6e3a1;
             color: #11111b;
@@ -86,26 +61,31 @@
             padding: 15px;
             margin-top: 15px;
         }
-
-        .btn-start:hover {
-            background: #94e2d5;
-        }
-
-        #view-area {
+        .btn-stop {
+            background: #f38ba8;
+            color: #11111b;
+            font-size: 1em;
+            width: 100%;
+            padding: 10px;
+            margin-top: 10px;
             display: none;
-            margin-top: 20px;
-            text-align: center;
         }
-
-        canvas,
-        video {
-            border-radius: 8px;
-            border: 2px solid #89b4fa;
-            max-width: 100%;
+        #view-area { display: none; margin-top: 20px; text-align: center; }
+        canvas, video { border-radius: 8px; border: 2px solid #89b4fa; max-width: 100%; background: #ffffff; }
+        #log-output {
+            background: #11111b;
+            color: #a6e3a1;
+            padding: 10px;
+            border-radius: 6px;
+            font-family: monospace;
+            text-align: left;
+            max-height: 150px;
+            overflow-y: auto;
+            margin-top: 10px;
+            font-size: 0.9em;
         }
     </style>
 </head>
-
 <body>
 
     <h1>🌐 光学データ通信システム</h1>
@@ -121,12 +101,12 @@
             <label>2. 送信データ種別</label>
             <div class="btn-group">
                 <button class="btn active" id="btn-type-text" onclick="setDataType('text')">📄 テキスト</button>
-                <button class="btn" id="btn-type-file" onclick="setDataType('file')">📁 ファイル (画像等)</button>
+                <button class="btn" id="btn-type-file" onclick="setDataType('file')">📁 ファイル</button>
             </div>
 
             <div id="input-text-group">
                 <label for="text-input">送信テキスト:</label>
-                <textarea id="text-input" rows="3" placeholder="ここにメッセージを入力...">Hello Optical Stream!</textarea>
+                <textarea id="text-input" rows="3" placeholder="メッセージを入力...">Hello Optical Web Stream!</textarea>
             </div>
 
             <div id="input-file-group" style="display:none;">
@@ -136,38 +116,47 @@
 
             <label>3. 方式選択</label>
             <select id="protocol-select">
-                <option value="apriltag" selected>AprilTag (高速・安定)</option>
-                <option value="qr">QRコード (標準)</option>
+                <option value="qr" selected>QRコード (標準)</option>
+                <option value="apriltag">AprilTag (描画モード)</option>
             </select>
 
-            <label for="grid-size">4. 画像の数 (グリッドサイズ N×N)</label>
-            <input type="number" id="grid-size" value="3" min="1" max="6">
-            <small style="color: #6c7086;">※ 推奨: 3 (3x3=9個) または 5 (5x5=25個)</small>
-
-            <label for="fps-input">5. 送信速度 (FPS)</label>
+            <label for="fps-input">4. 送信速度 (FPS)</label>
             <input type="number" id="fps-input" value="5" min="1" max="30">
-            <small style="color: #6c7086;">※ 推奨: 5 FPS (カメラ認識が最も安定)</small>
+            <small style="color: #6c7086;">※ 推奨: 5 FPS</small>
         </div>
 
-        <label for="camera-select">6. 使用カメラの選択</label>
-        <select id="camera-select">
-            <option value="">カメラを読み込み中...</option>
-        </select>
+        <div id="section-receiver-options" style="display:none;">
+            <label for="camera-select">2. 使用カメラの選択</label>
+            <select id="camera-select">
+                <option value="">カメラを読み込み中...</option>
+            </select>
+        </div>
 
-        <button class="btn btn-start" onclick="startTransmission()">🚀 通信実行 (START)</button>
-        <button class="btn" style="margin-top: 10px; width: 100%; background: #313244;"
-            onclick="alert('オプション機能は準備中です！')">⚙️ オプション設定 (開発中)</button>
+        <button class="btn btn-start" id="btn-start" onclick="startTransmission()">🚀 通信実行 (START)</button>
+        <button class="btn btn-stop" id="btn-stop" onclick="stopTransmission()">⏹️ 停止 (STOP)</button>
     </div>
 
     <div id="view-area" class="card">
         <h3 id="status-label">通信待機中...</h3>
-        <canvas id="send-canvas" style="display:none;"></canvas>
+        
+        <div id="qrcode-temp" style="display:none;"></div>
+        <canvas id="send-canvas" width="400" height="400" style="display:none;"></canvas>
+        
         <video id="receive-video" autoplay playsinline style="display:none;"></video>
+        <canvas id="scan-canvas" style="display:none;"></canvas>
+
+        <div id="log-output">ログ出力待機中...</div>
     </div>
 
     <script>
         let currentMode = 'send';
         let dataType = 'text';
+        let animationTimer = null;
+        let scanTimer = null;
+        let videoStream = null;
+
+        let receivedChunks = {};
+        let totalChunksExpected = null;
 
         // モード切替
         function setMode(mode) {
@@ -175,6 +164,8 @@
             document.getElementById('btn-mode-send').classList.toggle('active', mode === 'send');
             document.getElementById('btn-mode-receive').classList.toggle('active', mode === 'receive');
             document.getElementById('section-sender-options').style.display = mode === 'send' ? 'block' : 'none';
+            document.getElementById('section-receiver-options').style.display = mode === 'receive' ? 'block' : 'none';
+            if (mode === 'receive') loadCameras();
         }
 
         // データ種別切替
@@ -186,18 +177,17 @@
             document.getElementById('input-file-group').style.display = type === 'file' ? 'block' : 'none';
         }
 
-        // 利用可能なカメラの一覧を取得
+        // 利用可能なカメラを取得
         async function loadCameras() {
             const select = document.getElementById('camera-select');
             select.innerHTML = '';
             try {
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 const videoDevices = devices.filter(device => device.kind === 'videoinput');
-
                 videoDevices.forEach((device, index) => {
                     const option = document.createElement('option');
                     option.value = device.deviceId;
-                    option.text = device.label || `カメラ ${index + 1} (${device.deviceId.slice(0, 5)}...)`;
+                    option.text = device.label || `カメラ ${index + 1}`;
                     select.appendChild(option);
                 });
             } catch (err) {
@@ -205,71 +195,149 @@
             }
         }
 
-        // 実行開始処理
-        function startTransmission() {
+        function log(msg) {
+            const logBox = document.getElementById('log-output');
+            logBox.innerText = `[${new Date().toLocaleTimeString()}] ${msg}\n` + logBox.innerText;
+        }
+
+        // 通信開始
+        async function startTransmission() {
             document.getElementById('view-area').style.display = 'block';
-            const status = document.getElementById('status-label');
+            document.getElementById('btn-start').style.display = 'none';
+            document.getElementById('btn-stop').style.display = 'block';
 
             if (currentMode === 'send') {
-                status.innerText = "📤 送信アニメーション再生中...";
-                document.getElementById('send-canvas').style.display = 'inline-block';
-                document.getElementById('receive-video').style.display = 'none';
-                // TODO: キャンバスにQR/AprilTagを描画してタイマーで描画更新(FPS制御)
+                runSender();
             } else {
-                status.innerText = "📥 カメラで解析中...";
-                document.getElementById('send-canvas').style.display = 'none';
-                document.getElementById('receive-video').style.display = 'inline-block';
-                startCamera();
+                runReceiver();
             }
         }
 
-        // 受信用カメラの起動
-        async function startCamera() {
+        // 停止処理
+        function stopTransmission() {
+            if (animationTimer) clearInterval(animationTimer);
+            if (scanTimer) clearInterval(scanTimer);
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+            }
+
+            document.getElementById('btn-start').style.display = 'block';
+            document.getElementById('btn-stop').style.display = 'none';
+            document.getElementById('status-label').innerText = "⏹️ 通信停止";
+            log("通信を停止しました。");
+        }
+
+        // --- 送信ロジック ---
+        function runSender() {
+            const fps = parseInt(document.getElementById('fps-input').value) || 5;
+            const textData = document.getElementById('text-input').value || "No Data";
+            
+            // データをコマ分割 (1コマ 50文字)
+            const chunkSize = 50;
+            const totalChunks = Math.ceil(textData.length / chunkSize);
+            let chunkIdx = 0;
+
+            const canvas = document.getElementById('send-canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.style.display = 'inline-block';
+            document.getElementById('receive-video').style.display = 'none';
+
+            document.getElementById('status-label').innerText = `📤 送信中 (${fps} FPS)...`;
+            log(`送信開始: 全 ${textData.length} 文字 / ${totalChunks} コマ`);
+
+            animationTimer = setInterval(() => {
+                const start = chunkIdx * chunkSize;
+                const payload = textData.substring(start, start + chunkSize);
+                const header = `${chunkIdx + 1}/${totalChunks}|${payload}`;
+
+                // QRコード一時生成
+                const tempDiv = document.getElementById('qrcode-temp');
+                tempDiv.innerHTML = "";
+                new QRCode(tempDiv, { text: header, width: 350, height: 350 });
+
+                setTimeout(() => {
+                    const img = tempDiv.querySelector('img');
+                    if (img) {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(img, 25, 25, 350, 350);
+                    }
+                }, 50);
+
+                chunkIdx = (chunkIdx + 1) % totalChunks;
+            }, 1000 / fps);
+        }
+
+        // --- 受信ロジック ---
+        async function runReceiver() {
             const cameraId = document.getElementById('camera-select').value;
             const video = document.getElementById('receive-video');
+            const scanCanvas = document.getElementById('scan-canvas');
+            const scanCtx = scanCanvas.getContext('2d');
 
-            const constraints = {
-                video: cameraId ? { deviceId: { exact: cameraId } } : true
-            };
+            video.style.display = 'inline-block';
+            document.getElementById('send-canvas').style.display = 'none';
+            document.getElementById('status-label').innerText = "📥 カメラでQR解析中...";
+
+            receivedChunks = {};
+            totalChunksExpected = null;
 
             try {
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                video.srcObject = stream;
+                videoStream = await navigator.mediaDevices.getUserMedia({
+                    video: cameraId ? { deviceId: { exact: cameraId } } : true
+                });
+                video.srcObject = videoStream;
+
+                scanTimer = setInterval(() => {
+                    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                        scanCanvas.width = video.videoWidth;
+                        scanCanvas.height = video.videoHeight;
+                        scanCtx.drawImage(video, 0, 0, scanCanvas.width, scanCanvas.height);
+
+                        const imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+                        const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+                        if (code && code.data) {
+                            parseReceivedData(code.data);
+                        }
+                    }
+                }, 100);
+
             } catch (err) {
                 alert("カメラの起動に失敗しました: " + err.message);
+                stopTransmission();
             }
         }
-        // JavaScriptでのQR描画コード
-        function generateQRCode(elementId, text) {
-            document.getElementById(elementId).innerHTML = ""; // 初期化
-            new QRCode(document.getElementById(elementId), {
-                text: text,
-                width: 256,
-                height: 256,
-                correctLevel: QRCode.CorrectLevel.L // 超高速読み取り用にエラー訂正Lレベル
-            });
-        }
-        // カメラのCanvasからQRコードを高速検知するコード
-        function scanQRCodeFromCanvas(canvasContext, width, height) {
-            const imageData = canvasContext.getImageData(0, 0, width, height);
-            const code = jsQR(imageData.data, imageData.width, imageData.height, {
-                inversionAttempts: "dontInvert",
-            });
 
-            if (code) {
-                console.log("⚡ QRコード検出成功:", code.data);
-                return code.data;
+        // 受信データの解析
+        function parseReceivedData(data) {
+            const match = data.match(/^(\d+)\/(\d+)\|(.*)$/s);
+            if (match) {
+                const currentIdx = parseInt(match[1]);
+                totalChunksExpected = parseInt(match[2]);
+                const payload = match[3];
+
+                if (!receivedChunks[currentIdx]) {
+                    receivedChunks[currentIdx] = payload;
+                    const count = Object.keys(receivedChunks).length;
+                    log(`⚡ コマGET: [${count}/${totalChunksExpected}] (コマID: ${currentIdx})`);
+
+                    if (count === totalChunksExpected) {
+                        let fullText = "";
+                        for (let i = 1; i <= totalChunksExpected; i++) {
+                            fullText += receivedChunks[i] || "";
+                        }
+                        log(`🎉🎉 全件復元完了！: ${fullText}`);
+                        alert("🎉 全データを受信完了しました！\n\n復元結果:\n" + fullText);
+                        stopTransmission();
+                    }
+                }
             }
-            return null;
         }
 
-        // ページ読み込み時にカメラ一覧を取得
         window.onload = () => {
             loadCameras();
-            // カメラパーミッション要求用に一度呼び出し
-            navigator.mediaDevices.getUserMedia({ video: true }).then(loadCameras).catch(() => { });
+            navigator.mediaDevices.getUserMedia({ video: true }).then(loadCameras).catch(() => {});
         };
     </script>
 </body>
-
 </html>
