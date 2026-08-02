@@ -18,6 +18,20 @@
             display: flex;
             flex-direction: column;
             align-items: center;
+            transition: background-color 0.3s;
+        }
+        body.dark-mode {
+            background-color: #000000 !important;
+        }
+        body.dark-mode .card, body.dark-mode h1 {
+            opacity: 0.1;
+            pointer-events: none;
+        }
+        body.dark-mode #view-area {
+            opacity: 1 !important;
+            pointer-events: auto;
+            background: #000;
+            border: none;
         }
         h1 { color: #89b4fa; margin-bottom: 20px; }
         .card {
@@ -30,7 +44,7 @@
             margin-bottom: 15px;
         }
         label { display: block; margin-top: 10px; font-weight: bold; color: #a6adc8; }
-        select, input[type="number"], input[type="file"], textarea {
+        select, input[type="number"], input[type="text"], input[type="file"], textarea {
             width: 100%;
             padding: 10px;
             margin-top: 5px;
@@ -52,26 +66,44 @@
             cursor: pointer;
             transition: 0.2s;
         }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
         .btn.active { background: #89b4fa; color: #11111b; }
-        .btn-start {
-            background: #a6e3a1;
-            color: #11111b;
-            font-size: 1.1em;
-            width: 100%;
-            padding: 15px;
-            margin-top: 15px;
+        .btn-start { background: #a6e3a1; color: #11111b; font-size: 1.1em; width: 100%; padding: 15px; margin-top: 15px; }
+        .btn-stop { background: #f38ba8; color: #11111b; font-size: 1em; width: 100%; padding: 10px; margin-top: 10px; display: none; }
+        
+        #view-area { display: none; margin-top: 20px; text-align: center; position: relative; }
+        canvas, video { border-radius: 8px; border: 2px solid #89b4fa; max-width: 100%; background: #ffffff; }
+        
+        /* 拡大モード用 */
+        canvas.enlarged {
+            transform: scale(1.3);
+            margin: 40px 0;
         }
-        .btn-stop {
-            background: #f38ba8;
-            color: #11111b;
-            font-size: 1em;
-            width: 100%;
-            padding: 10px;
-            margin-top: 10px;
+
+        /* 視認用ガイドライン枠 */
+        .video-container {
+            position: relative;
+            display: inline-block;
+        }
+        #roi-overlay {
+            position: absolute;
+            top: 15%;
+            left: 15%;
+            width: 70%;
+            height: 70%;
+            border: 2px dashed #a6e3a1;
+            box-sizing: border-box;
+            pointer-events: none;
             display: none;
         }
-        #view-area { display: none; margin-top: 20px; text-align: center; }
-        canvas, video { border-radius: 8px; border: 2px solid #89b4fa; max-width: 100%; background: #ffffff; }
+        #roi-overlay.locked {
+            border: 2px solid #a6e3a1;
+            box-shadow: 0 0 10px #a6e3a1;
+        }
+
+        .radio-group { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+        .radio-label { font-weight: normal; color: #cdd6f4; cursor: pointer; }
+
         #log-output {
             background: #11111b;
             color: #a6e3a1;
@@ -79,7 +111,7 @@
             border-radius: 6px;
             font-family: monospace;
             text-align: left;
-            max-height: 180px;
+            max-height: 150px;
             overflow-y: auto;
             margin-top: 10px;
             font-size: 0.85em;
@@ -91,7 +123,7 @@
 
     <h1>🌐 光学データ通信システム</h1>
 
-    <div class="card">
+    <div class="card" id="main-card">
         <label>1. 通信モード選択</label>
         <div class="btn-group">
             <button class="btn active" id="btn-mode-send" onclick="setMode('send')">📤 送信 (Sender)</button>
@@ -118,16 +150,14 @@
             <label>3. 方式選択</label>
             <select id="protocol-select">
                 <option value="qr" selected>QRコード (標準)</option>
-                <option value="apriltag">AprilTag (高速描画)</option>
+                <option value="apriltag">AprilTag (描画モード)</option>
             </select>
 
             <label for="grid-size">4. 一度に表示するマーカー数 (N×N)</label>
             <input type="number" id="grid-size" value="3" min="1" max="5">
-            <small style="color: #6c7086;">※ 推奨: 3 (3x3=9個)</small>
 
             <label for="fps-input">5. 送信速度 (FPS)</label>
             <input type="number" id="fps-input" value="5" min="1" max="30">
-            <small style="color: #6c7086;">※ 推奨: 5 FPS</small>
         </div>
 
         <div id="section-receiver-options" style="display:none;">
@@ -136,9 +166,21 @@
                 <option value="">カメラを読み込み中...</option>
             </select>
 
-            <label for="recv-grid-size">3. 受信側想定マーカー数 (N×N)</label>
-            <input type="number" id="recv-grid-size" value="3" min="1" max="5">
-            <small style="color: #6c7086;">※ 送信側と同じ数値を入力すると検証精度が向上します</small>
+            <label>3. 停止条件の設定</label>
+            <div class="radio-group">
+                <label class="radio-label">
+                    <input type="radio" name="stop-condition" value="auto" checked onchange="toggleStopCondition()">
+                    全コマ取得完了時に自動停止
+                </label>
+                <label class="radio-label">
+                    <input type="radio" name="stop-condition" value="manual" onchange="toggleStopCondition()">
+                    指定コマ数に達したら停止:
+                </label>
+                <input type="number" id="target-chunks-input" value="10" min="1" disabled style="margin-left: 20px; width: 90%;">
+            </div>
+
+            <label>4. キャリブレーション (解析領域固定)</label>
+            <button class="btn" id="btn-calibrate" onclick="toggleCalibration()" style="background: #fab387; color: #11111b;">🎯 解析枠を固定する</button>
         </div>
 
         <button class="btn btn-start" id="btn-start" onclick="startTransmission()">🚀 通信実行 (START)</button>
@@ -148,10 +190,18 @@
     <div id="view-area" class="card">
         <h3 id="status-label">通信待機中...</h3>
         
+        <div id="sender-controls" style="display:none; margin-bottom: 10px;">
+            <button class="btn" onclick="toggleEnlarge()" style="font-size: 0.85em;">🔍 拡大/標準</button>
+            <button class="btn" onclick="toggleDarkMode()" style="font-size: 0.85em;">🌙 背景暗転</button>
+        </div>
+
         <div id="qrcode-temp" style="display:none;"></div>
-        <canvas id="send-canvas" width="450" height="450" style="display:none;"></canvas>
+        <canvas id="send-canvas" width="400" height="400" style="display:none;"></canvas>
         
-        <video id="receive-video" autoplay playsinline style="display:none;"></video>
+        <div class="video-container">
+            <video id="receive-video" autoplay playsinline style="display:none;"></video>
+            <div id="roi-overlay"></div>
+        </div>
         <canvas id="scan-canvas" style="display:none;"></canvas>
 
         <div id="log-output">=== システムログ表示エリア ===\n</div>
@@ -163,6 +213,7 @@
         let animationTimer = null;
         let scanTimer = null;
         let videoStream = null;
+        let isCalibrated = false;
 
         let receivedChunks = {};
         let totalChunksExpected = null;
@@ -182,6 +233,44 @@
             document.getElementById('btn-type-file').classList.toggle('active', type === 'file');
             document.getElementById('input-text-group').style.display = type === 'text' ? 'block' : 'none';
             document.getElementById('input-file-group').style.display = type === 'file' ? 'block' : 'none';
+        }
+
+        function toggleStopCondition() {
+            const isManual = document.querySelector('input[name="stop-condition"]:checked').value === 'manual';
+            document.getElementById('target-chunks-input').disabled = !isManual;
+        }
+
+        function toggleEnlarge() {
+            document.getElementById('send-canvas').classList.toggle('enlarged');
+        }
+
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark-mode');
+        }
+
+        function toggleCalibration() {
+            isCalibrated = !isCalibrated;
+            const overlay = document.getElementById('roi-overlay');
+            const btn = document.getElementById('btn-calibrate');
+            
+            if (isCalibrated) {
+                overlay.classList.add('locked');
+                btn.innerText = "🔓 解析枠の固定を解除";
+                btn.style.background = "#a6e3a1";
+                log("🎯 解析領域を中央の緑枠に限定（超高速モード）");
+            } else {
+                overlay.classList.remove('locked');
+                btn.innerText = "🎯 解析枠を固定する";
+                btn.style.background = "#fab387";
+                log("🔓 全画面解析モードに戻りました");
+            }
+        }
+
+        function setFormDisabled(disabled) {
+            const inputs = document.querySelectorAll('.card input, .card select, .card textarea, .card .btn');
+            inputs.forEach(el => {
+                if (el.id !== 'btn-stop') el.disabled = disabled;
+            });
         }
 
         async function loadCameras() {
@@ -211,6 +300,9 @@
             document.getElementById('view-area').style.display = 'block';
             document.getElementById('btn-start').style.display = 'none';
             document.getElementById('btn-stop').style.display = 'block';
+            
+            // UIを無効化（誤操作防止）
+            setFormDisabled(true);
 
             if (currentMode === 'send') {
                 runSender();
@@ -226,20 +318,47 @@
                 videoStream.getTracks().forEach(track => track.stop());
             }
 
+            document.body.classList.remove('dark-mode');
+            document.getElementById('roi-overlay').style.display = 'none';
             document.getElementById('btn-start').style.display = 'block';
             document.getElementById('btn-stop').style.display = 'none';
             document.getElementById('status-label').innerText = "⏹️ 通信停止";
+            
+            // UI無効化の解除
+            setFormDisabled(false);
+            toggleStopCondition();
             log("システムを停止しました。");
         }
 
-        // --- 送信処理 (QR / AprilTag 対応) ---
+        // --- AprilTagの生成エンジン (Canvas直描画) ---
+        function drawAprilTag(ctx, id, x, y, size) {
+            ctx.fillStyle = "white";
+            ctx.fillRect(x, y, size, size);
+            
+            ctx.fillStyle = "black";
+            const border = size * 0.15;
+            ctx.fillRect(x + border, y + border, size - border * 2, size - border * 2);
+
+            // 内部のIDビットパターンを描画 (ダミーパターン生成)
+            ctx.fillStyle = "white";
+            const innerSize = size - border * 2;
+            const bitSize = innerSize / 6;
+            for (let r = 0; r < 6; r++) {
+                for (let c = 0; c < 6; c++) {
+                    if ((id + r + c) % 2 === 0) {
+                        ctx.fillRect(x + border + c * bitSize, y + border + r * bitSize, bitSize, bitSize);
+                    }
+                }
+            }
+        }
+
+        // --- 送信処理 ---
         function runSender() {
             const fps = parseInt(document.getElementById('fps-input').value) || 5;
             const textData = document.getElementById('text-input').value || "No Data";
             const protocol = document.getElementById('protocol-select').value;
             const gridSize = parseInt(document.getElementById('grid-size').value) || 3;
             
-            // 1コマあたりのデータサイズ
             const chunkSize = 40 * (gridSize * gridSize);
             const totalChunks = Math.ceil(textData.length / chunkSize);
             let chunkIdx = 0;
@@ -247,60 +366,64 @@
             const canvas = document.getElementById('send-canvas');
             const ctx = canvas.getContext('2d');
             canvas.style.display = 'inline-block';
+            document.getElementById('sender-controls').style.display = 'block';
             document.getElementById('receive-video').style.display = 'none';
 
             document.getElementById('status-label').innerText = `📤 送信中 (${protocol.toUpperCase()} / ${fps} FPS)...`;
-            log(`【送信開始】 モード: ${protocol} | グリッド: ${gridSize}x${gridSize} | 全 ${totalChunks} コマ`);
+            log(`【送信開始】 ${protocol.toUpperCase()} | グリッド: ${gridSize}x${gridSize} | 全 ${totalChunks} コマ`);
 
             animationTimer = setInterval(() => {
                 const start = chunkIdx * chunkSize;
                 const payload = textData.substring(start, start + chunkSize);
-                
-                // ★ヘッダー構造: "現在コマ/全コマ|データ"
                 const header = `${chunkIdx + 1}/${totalChunks}|${payload}`;
 
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
 
                 if (protocol === 'qr') {
-                    // QRコードの生成と表示
                     const tempDiv = document.getElementById('qrcode-temp');
                     tempDiv.innerHTML = "";
-                    new QRCode(tempDiv, { text: header, width: 400, height: 400 });
+                    new QRCode(tempDiv, { text: header, width: 380, height: 380 });
 
                     setTimeout(() => {
                         const img = tempDiv.querySelector('img');
-                        if (img) ctx.drawImage(img, 25, 25, 400, 400);
+                        if (img) ctx.drawImage(img, 10, 10, 380, 380);
                     }, 30);
                 } else {
-                    // AprilTag 簡易ビジュアル表現描画 (デモグリッド描画)
+                    // ★AprilTagグリッド表示
                     ctx.fillStyle = "black";
-                    ctx.fillRect(0, 0, 450, 450);
-                    ctx.fillStyle = "white";
-                    ctx.font = "16px monospace";
-                    ctx.fillText(`AprilTag Frame: ${chunkIdx + 1}/${totalChunks}`, 20, 30);
-                    ctx.fillText(`Payload: ${payload.substring(0, 20)}...`, 20, 60);
+                    ctx.fillRect(0, 0, 400, 400);
+
+                    const tagSize = (360 / gridSize) - 10;
+                    for (let r = 0; r < gridSize; r++) {
+                        for (let c = 0; c < gridSize; c++) {
+                            const tagId = (chunkIdx * (gridSize * gridSize)) + (r * gridSize + c);
+                            const x = 20 + c * (tagSize + 10);
+                            const y = 20 + r * (tagSize + 10);
+                            drawAprilTag(ctx, tagId, x, y, tagSize);
+                        }
+                    }
                 }
 
                 chunkIdx = (chunkIdx + 1) % totalChunks;
             }, 1000 / fps);
         }
 
-        // --- 受信処理 (全コマ収集で自動停止機能つき) ---
+        // --- 受信処理 ---
         async function runReceiver() {
             const cameraId = document.getElementById('camera-select').value;
             const video = document.getElementById('receive-video');
             const scanCanvas = document.getElementById('scan-canvas');
             const scanCtx = scanCanvas.getContext('2d');
-            const recvGrid = parseInt(document.getElementById('recv-grid-size').value) || 3;
+            const overlay = document.getElementById('roi-overlay');
 
             video.style.display = 'inline-block';
+            overlay.style.display = 'block';
+            document.getElementById('sender-controls').style.display = 'none';
             document.getElementById('send-canvas').style.display = 'none';
-            document.getElementById('status-label').innerText = "📥 カメラで解析中...";
+            document.getElementById('status-label').innerText = "📥 カメラ解析中...";
 
             receivedChunks = {};
             totalChunksExpected = null;
-
-            log(`【受信開始】 想定グリッド: ${recvGrid}x${recvGrid}`);
 
             try {
                 videoStream = await navigator.mediaDevices.getUserMedia({
@@ -312,7 +435,18 @@
                     if (video.readyState === video.HAVE_ENOUGH_DATA) {
                         scanCanvas.width = video.videoWidth;
                         scanCanvas.height = video.videoHeight;
-                        scanCtx.drawImage(video, 0, 0, scanCanvas.width, scanCanvas.height);
+
+                        let srcX = 0, srcY = 0, srcW = video.videoWidth, srcH = video.videoHeight;
+
+                        // ★キャリブレーション（ROIトリミング解析）
+                        if (isCalibrated) {
+                            srcX = video.videoWidth * 0.15;
+                            srcY = video.videoHeight * 0.15;
+                            srcW = video.videoWidth * 0.7;
+                            srcH = video.videoHeight * 0.7;
+                        }
+
+                        scanCtx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, scanCanvas.width, scanCanvas.height);
 
                         const imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
                         const code = jsQR(imageData.data, imageData.width, imageData.height);
@@ -329,7 +463,7 @@
             }
         }
 
-        // 受信パケットの自動解析 & 自動停止
+        // 受信判定と停止ロジック
         function parseReceivedData(data) {
             const match = data.match(/^(\d+)\/(\d+)\|(.*)$/s);
             if (match) {
@@ -344,15 +478,26 @@
                     log(`⚡ コマGET: [${count} / ${totalChunksExpected}] (コマID: ${currentIdx})`);
                     document.getElementById('status-label').innerText = `📥 受信中... (${count}/${totalChunksExpected})`;
 
-                    // ★【新機能】指定した全コマが揃ったら自動停止！
-                    if (count === totalChunksExpected) {
+                    // 停止条件のチェック
+                    const stopCond = document.querySelector('input[name="stop-condition"]:checked').value;
+                    const targetChunks = parseInt(document.getElementById('target-chunks-input').value) || 10;
+
+                    let isComplete = false;
+                    if (stopCond === 'auto' && count === totalChunksExpected) {
+                        isComplete = true;
+                    } else if (stopCond === 'manual' && count >= targetChunks) {
+                        isComplete = true;
+                    }
+
+                    if (isComplete) {
                         let fullText = "";
-                        for (let i = 1; i <= totalChunksExpected; i++) {
+                        const maxIndex = stopCond === 'auto' ? totalChunksExpected : Math.min(count, targetChunks);
+                        for (let i = 1; i <= maxIndex; i++) {
                             fullText += receivedChunks[i] || "";
                         }
-                        log(`🎉【全件受信完了！】\n内容: ${fullText}`);
-                        alert("🎉 全コマの読み込みに成功しました！\n\n復元データ:\n" + fullText);
-                        stopTransmission(); // 自動停止！
+                        log(`🎉【受信完了！】\n内容: ${fullText}`);
+                        alert("🎉 条件達成！受信を完了しました。\n\n復元データ:\n" + fullText);
+                        stopTransmission();
                     }
                 }
             }
