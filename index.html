@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html lang="ja">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>光学データ通信システム (Optical Streamer)</title>
-    <script src="./Calculation.js"></script>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script src="./Calculation.js"></script>
 
     <style>
         body {
@@ -19,26 +19,107 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            transition: background-color 0.3s;
         }
-
-        /* 拡大＆シアターモード（レイアウトを崩さず自然に拡大） */
         body.theater-mode {
             background-color: #000000 !important;
         }
-
         body.theater-mode .card:not(#view-area) {
             display: none !important;
-            /* メイン設定だけを隠す */
         }
-
         body.theater-mode #send-canvas {
-            width: 90vw;
-            max-width: 550px;
-            height: auto;
+            width: 95vw !important;
+            max-width: 650px !important;
+            height: auto !important;
         }
 
-        /* 復元結果表示ボックス */
+        h1 { color: #89b4fa; margin-bottom: 20px; }
+        .card {
+            background: #313244;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 500px;
+            margin-bottom: 15px;
+            box-sizing: border-box;
+        }
+        label { display: block; margin-top: 10px; font-weight: bold; color: #a6adc8; }
+        select, input[type="number"], input[type="text"], input[type="file"], textarea {
+            width: 100%;
+            padding: 10px;
+            margin-top: 5px;
+            border-radius: 6px;
+            border: 1px solid #45475a;
+            background: #181825;
+            color: #cdd6f4;
+            box-sizing: border-box;
+        }
+        .btn-group { display: flex; gap: 10px; margin-top: 10px; }
+        .btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            background: #45475a;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn.active { background: #89b4fa; color: #11111b; }
+        .btn-start { background: #a6e3a1; color: #11111b; font-size: 1.1em; width: 100%; padding: 15px; margin-top: 15px; }
+        .btn-stop { background: #f38ba8; color: #11111b; font-size: 1em; width: 100%; padding: 10px; margin-top: 10px; display: none; }
+        
+        #view-area { display: none; margin-top: 20px; text-align: center; }
+        
+        /* キャンバスとビデオをカード枠内に完全フィットさせる調整 */
+        canvas, video {
+            border-radius: 8px;
+            border: 2px solid #89b4fa;
+            width: 100%;
+            max-width: 400px;
+            height: auto;
+            background: #000000;
+            box-sizing: border-box;
+        }
+
+        .video-container {
+            position: relative;
+            display: inline-block;
+            width: 100%;
+            max-width: 400px;
+        }
+        #roi-overlay {
+            position: absolute;
+            top: 15%;
+            left: 15%;
+            width: 70%;
+            height: 70%;
+            border: 2px dashed #a6e3a1;
+            box-sizing: border-box;
+            pointer-events: none;
+            display: none;
+        }
+        #roi-overlay.locked {
+            border: 2px solid #a6e3a1;
+            box-shadow: 0 0 10px #a6e3a1;
+        }
+
+        #log-output {
+            background: #11111b;
+            color: #a6e3a1;
+            padding: 10px;
+            border-radius: 6px;
+            font-family: monospace;
+            text-align: left;
+            max-height: 150px;
+            overflow-y: auto;
+            margin-top: 15px;
+            font-size: 0.85em;
+            white-space: pre-wrap;
+        }
+
         #result-display {
             background: #181825;
             border: 2px solid #a6e3a1;
@@ -51,164 +132,8 @@
             font-family: monospace;
             display: none;
         }
-
-        h1 {
-            color: #89b4fa;
-            margin-bottom: 20px;
-        }
-
-        .card {
-            background: #313244;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-            width: 100%;
-            max-width: 500px;
-            margin-bottom: 15px;
-        }
-
-        label {
-            display: block;
-            margin-top: 10px;
-            font-weight: bold;
-            color: #a6adc8;
-        }
-
-        select,
-        input[type="number"],
-        input[type="text"],
-        input[type="file"],
-        textarea {
-            width: 100%;
-            padding: 10px;
-            margin-top: 5px;
-            border-radius: 6px;
-            border: 1px solid #45475a;
-            background: #181825;
-            color: #cdd6f4;
-            box-sizing: border-box;
-        }
-
-        .btn-group {
-            display: flex;
-            gap: 10px;
-            margin-top: 10px;
-        }
-
-        .btn {
-            flex: 1;
-            padding: 12px;
-            border: none;
-            border-radius: 6px;
-            background: #45475a;
-            color: white;
-            font-weight: bold;
-            cursor: pointer;
-            transition: 0.2s;
-        }
-
-        .btn:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-        }
-
-        .btn.active {
-            background: #89b4fa;
-            color: #11111b;
-        }
-
-        .btn-start {
-            background: #a6e3a1;
-            color: #11111b;
-            font-size: 1.1em;
-            width: 100%;
-            padding: 15px;
-            margin-top: 15px;
-        }
-
-        .btn-stop {
-            background: #f38ba8;
-            color: #11111b;
-            font-size: 1em;
-            width: 100%;
-            padding: 10px;
-            margin-top: 10px;
-            display: none;
-        }
-
-        #view-area {
-            display: none;
-            margin-top: 20px;
-            text-align: center;
-            position: relative;
-        }
-
-        canvas,
-        video {
-            border-radius: 8px;
-            border: 2px solid #89b4fa;
-            max-width: 100%;
-            background: #ffffff;
-        }
-
-        /* 拡大モード用 */
-        canvas.enlarged {
-            transform: scale(1.3);
-            margin: 40px 0;
-        }
-
-        /* 視認用ガイドライン枠 */
-        .video-container {
-            position: relative;
-            display: inline-block;
-        }
-
-        #roi-overlay {
-            position: absolute;
-            top: 15%;
-            left: 15%;
-            width: 70%;
-            height: 70%;
-            border: 2px dashed #a6e3a1;
-            box-sizing: border-box;
-            pointer-events: none;
-            display: none;
-        }
-
-        #roi-overlay.locked {
-            border: 2px solid #a6e3a1;
-            box-shadow: 0 0 10px #a6e3a1;
-        }
-
-        .radio-group {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-            margin-top: 8px;
-        }
-
-        .radio-label {
-            font-weight: normal;
-            color: #cdd6f4;
-            cursor: pointer;
-        }
-
-        #log-output {
-            background: #11111b;
-            color: #a6e3a1;
-            padding: 10px;
-            border-radius: 6px;
-            font-family: monospace;
-            text-align: left;
-            max-height: 150px;
-            overflow-y: auto;
-            margin-top: 10px;
-            font-size: 0.85em;
-            white-space: pre-wrap;
-        }
     </style>
 </head>
-
 <body>
 
     <h1>🌐 光学データ通信システム</h1>
@@ -240,11 +165,11 @@
             <label>3. 方式選択</label>
             <select id="protocol-select">
                 <option value="qr" selected>QRコード (標準)</option>
-                <option value="apriltag">AprilTag (描画モード)</option>
+                <option value="apriltag">AprilTag (高速)</option>
             </select>
 
             <label for="grid-size">4. 一度に表示するマーカー数 (N×N)</label>
-            <input type="number" id="grid-size" value="3" min="1" max="5">
+            <input type="number" id="grid-size" value="2" min="1" max="4">
 
             <label for="fps-input">5. 送信速度 (FPS)</label>
             <input type="number" id="fps-input" value="5" min="1" max="30">
@@ -256,23 +181,15 @@
                 <option value="">カメラを読み込み中...</option>
             </select>
 
-            <label>3. 停止条件の設定</label>
-            <div class="radio-group">
-                <label class="radio-label">
-                    <input type="radio" name="stop-condition" value="auto" checked onchange="toggleStopCondition()">
-                    全コマ取得完了時に自動停止
-                </label>
-                <label class="radio-label">
-                    <input type="radio" name="stop-condition" value="manual" onchange="toggleStopCondition()">
-                    指定コマ数に達したら停止:
-                </label>
-                <input type="number" id="target-chunks-input" value="10" min="1" disabled
-                    style="margin-left: 20px; width: 90%;">
-            </div>
+            <label>3. 受信方式の設定</label>
+            <select id="recv-protocol-select">
+                <option value="auto" selected>✨ 自動検出 (推奨)</option>
+                <option value="qr">QRコード</option>
+                <option value="apriltag">AprilTag</option>
+            </select>
 
             <label>4. キャリブレーション (解析領域固定)</label>
-            <button class="btn" id="btn-calibrate" onclick="toggleCalibration()"
-                style="background: #fab387; color: #11111b;">🎯 解析枠を固定する</button>
+            <button class="btn" id="btn-calibrate" type="button" onclick="toggleCalibration()" style="background: #fab387; color: #11111b;">🎯 解析枠を固定する</button>
         </div>
 
         <button class="btn btn-start" id="btn-start" onclick="startTransmission()">🚀 通信実行 (START)</button>
@@ -281,17 +198,16 @@
 
     <div id="view-area" class="card">
         <h3 id="status-label">通信待機中...</h3>
-
+        
         <div id="active-controls" style="margin-bottom: 15px;">
-            <button type="button" class="btn" onclick="toggleTheaterMode()"
-                style="background: #cba6f7; color: #11111b;">🔍 拡大 ＆ 背景暗転</button>
+            <button type="button" class="btn" onclick="toggleTheaterMode()" style="background: #cba6f7; color: #11111b;">🔍 拡大 ＆ 背景暗転</button>
         </div>
 
-        <div id="qrcode-temp" style="display:none;"></div>
+        <div id="qrcode-temp-container" style="display:none;"></div>
         <canvas id="send-canvas" width="400" height="400" style="display:none;"></canvas>
-
-        <div class="video-container">
-            <video id="receive-video" autoplay playsinline style="display:none;"></video>
+        
+        <div class="video-container" id="video-box" style="display:none;">
+            <video id="receive-video" autoplay playsinline></video>
             <div id="roi-overlay"></div>
         </div>
         <canvas id="scan-canvas" style="display:none;"></canvas>
@@ -312,9 +228,6 @@
         let videoStream = null;
         let isCalibrated = false;
 
-        let receivedChunks = {};
-        let totalChunksExpected = null;
-
         function setMode(mode) {
             currentMode = mode;
             document.getElementById('btn-mode-send').classList.toggle('active', mode === 'send');
@@ -332,15 +245,6 @@
             document.getElementById('input-file-group').style.display = type === 'file' ? 'block' : 'none';
         }
 
-        function toggleStopCondition() {
-            const isManual = document.querySelector('input[name="stop-condition"]:checked').value === 'manual';
-            document.getElementById('target-chunks-input').disabled = !isManual;
-        }
-
-        function toggleEnlarge() {
-            document.getElementById('send-canvas').classList.toggle('enlarged');
-        }
-
         function toggleTheaterMode() {
             document.body.classList.toggle('theater-mode');
         }
@@ -349,21 +253,19 @@
             isCalibrated = !isCalibrated;
             const overlay = document.getElementById('roi-overlay');
             const btn = document.getElementById('btn-calibrate');
-
             if (isCalibrated) {
                 overlay.classList.add('locked');
                 btn.innerText = "🔓 解析枠の固定を解除";
                 btn.style.background = "#a6e3a1";
-                log("🎯 解析領域を中央の緑枠に限定（超高速モード）");
+                log("🎯 解析領域を中央の枠に限定固定");
             } else {
                 overlay.classList.remove('locked');
                 btn.innerText = "🎯 解析枠を固定する";
                 btn.style.background = "#fab387";
-                log("🔓 全画面解析モードに戻りました");
+                log("🔓 全画面解析モード");
             }
         }
 
-        // ボタンの有効/無効化（拡大ボタン等は除外）
         function setFormDisabled(disabled) {
             const inputs = document.querySelectorAll('#main-card input, #main-card select, #main-card textarea, #main-card .btn');
             inputs.forEach(el => {
@@ -384,7 +286,7 @@
                     select.appendChild(option);
                 });
             } catch (err) {
-                select.innerHTML = '<option value="">カメラの取得に失敗しました</option>';
+                select.innerHTML = '<option value="">カメラ取得失敗</option>';
             }
         }
 
@@ -394,9 +296,7 @@
             logBox.innerText = `[${time}] ${msg}\n` + logBox.innerText;
         }
 
-        // 通信開始
         async function startTransmission() {
-            // 1. 受信キャッシュを完全に初期化（2回目以降読み取れない問題の解決）
             Calculation.resetReceiver();
             document.getElementById('result-display').style.display = 'none';
             document.getElementById('result-text').innerText = '';
@@ -404,7 +304,7 @@
             document.getElementById('view-area').style.display = 'block';
             document.getElementById('btn-start').style.display = 'none';
             document.getElementById('btn-stop').style.display = 'block';
-
+            
             setFormDisabled(true);
 
             if (currentMode === 'send') {
@@ -414,63 +314,73 @@
             }
         }
 
-        // 通信停止
+        // ★停止時に画面・カメラ・キャンバスを完全に消去する処理
         function stopTransmission() {
             if (animationTimer) clearInterval(animationTimer);
             if (scanTimer) clearInterval(scanTimer);
+            
+            // カメラのストップ
             if (videoStream) {
                 videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
             }
 
-            // キャッシュのリセット
+            const video = document.getElementById('receive-video');
+            video.srcObject = null;
+
+            // キャンバスのクリア
+            const sendCanvas = document.getElementById('send-canvas');
+            const sendCtx = sendCanvas.getContext('2d');
+            sendCtx.clearRect(0, 0, sendCanvas.width, sendCanvas.height);
+
+            // 要素の非表示化
+            sendCanvas.style.display = 'none';
+            document.getElementById('video-box').style.display = 'none';
+            document.getElementById('roi-overlay').style.display = 'none';
+
             Calculation.resetReceiver();
 
             document.body.classList.remove('theater-mode');
-            document.getElementById('roi-overlay').style.display = 'none';
             document.getElementById('btn-start').style.display = 'block';
             document.getElementById('btn-stop').style.display = 'none';
             document.getElementById('status-label').innerText = "⏹️ 通信停止";
-
+            
             setFormDisabled(false);
             log("システムを停止しました。");
         }
 
-        // --- AprilTagの生成エンジン (Canvas直描画) ---
-        function drawAprilTag(ctx, id, x, y, size) {
+        // --- AprilTag リアル描画処理 (データASCII依存) ---
+        function drawAprilTag(ctx, charCode, x, y, size) {
             ctx.fillStyle = "white";
             ctx.fillRect(x, y, size, size);
-
+            
             ctx.fillStyle = "black";
             const border = size * 0.15;
             ctx.fillRect(x + border, y + border, size - border * 2, size - border * 2);
 
-            // 内部のIDビットパターンを描画 (ダミーパターン生成)
+            // 文字コード値を 6x6 ビットパターンにマッピング
             ctx.fillStyle = "white";
             const innerSize = size - border * 2;
             const bitSize = innerSize / 6;
+            
             for (let r = 0; r < 6; r++) {
                 for (let c = 0; c < 6; c++) {
-                    if ((id + r + c) % 2 === 0) {
+                    const bitIdx = r * 6 + c;
+                    // charCode のビットが立っているか判定
+                    if ((charCode >> (bitIdx % 8)) & 1) {
                         ctx.fillRect(x + border + c * bitSize, y + border + r * bitSize, bitSize, bitSize);
                     }
                 }
             }
         }
 
+        // --- 送信処理 ---
         function runSender() {
             const fps = parseInt(document.getElementById('fps-input').value) || 5;
-
-            // ★入力フォームの値を直接取得（固定化の防止）
-            let textData = "";
-            if (dataType === 'text') {
-                textData = document.getElementById('text-input').value || "No Data";
-            } else {
-                textData = "File sending mode placeholder"; // ファイルモードは追って実装
-            }
-
+            const textData = document.getElementById('text-input').value || "No Data";
             const protocol = document.getElementById('protocol-select').value;
-            const gridSize = parseInt(document.getElementById('grid-size').value) || 3;
-
+            const gridSize = parseInt(document.getElementById('grid-size').value) || 2;
+            
             Calculation.config.gridSize = gridSize;
             Calculation.config.protocol = protocol;
 
@@ -479,13 +389,13 @@
 
             const canvas = document.getElementById('send-canvas');
             const ctx = canvas.getContext('2d');
-            canvas.style.display = 'inline-block';
-            document.getElementById('receive-video').style.display = 'none';
+            canvas.style.display = 'block';
+            document.getElementById('video-box').style.display = 'none';
 
-            const tempDiv = document.getElementById('qrcode-temp');
+            const container = document.getElementById('qrcode-temp-container');
 
             document.getElementById('status-label').innerText = `📤 送信中 (${protocol.toUpperCase()} / ${fps} FPS)...`;
-            log(`【送信開始】 モード: ${protocol.toUpperCase()} | グリッド: ${gridSize}x${gridSize} | 全 ${packets.length} パケット`);
+            log(`【送信開始】 モード: ${protocol.toUpperCase()} | グリッド: ${gridSize}x${gridSize} | 全 ${packets.length} コマ`);
 
             animationTimer = setInterval(() => {
                 if (packets.length === 0) return;
@@ -494,24 +404,53 @@
                 const headerText = currentPacket.headerText;
 
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = "#ffffff";
+                ctx.fillRect(0, 0, 400, 400);
 
                 if (protocol === 'qr') {
-                    tempDiv.innerHTML = "";
-                    new QRCode(tempDiv, {
-                        text: headerText,
-                        width: 380,
-                        height: 380,
-                        correctLevel: QRCode.CorrectLevel.L
-                    });
+                    // N x N 個の分割QRコードを描画する処理
+                    const totalCells = gridSize * gridSize;
+                    const padding = 10;
+                    const cellWidth = (380 - (padding * (gridSize + 1))) / gridSize;
 
+                    container.innerHTML = "";
+                    const qrElements = [];
+
+                    for (let i = 0; i < totalCells; i++) {
+                        const cellDiv = document.createElement('div');
+                        container.appendChild(cellDiv);
+                        
+                        // データ構造: ヘッダー + セルインデックスデータ
+                        const cellPayload = `${headerText}#${i}`;
+                        const qrcode = new QRCode(cellDiv, {
+                            text: cellPayload,
+                            width: cellWidth,
+                            height: cellWidth,
+                            correctLevel: QRCode.CorrectLevel.L
+                        });
+                        qrElements.push(cellDiv);
+                    }
+
+                    // 生成待ちをして描画（チラつき防止）
                     setTimeout(() => {
-                        const img = tempDiv.querySelector('img');
-                        if (img && img.complete) {
-                            ctx.drawImage(img, 10, 10, 380, 380);
+                        ctx.fillStyle = "#ffffff";
+                        ctx.fillRect(0, 0, 400, 400);
+                        
+                        for (let r = 0; r < gridSize; r++) {
+                            for (let c = 0; c < gridSize; c++) {
+                                const idx = r * gridSize + c;
+                                const img = qrElements[idx].querySelector('img');
+                                if (img && img.complete) {
+                                    const x = 10 + padding + c * (cellWidth + padding);
+                                    const y = 10 + padding + r * (cellWidth + padding);
+                                    ctx.drawImage(img, x, y, cellWidth, cellWidth);
+                                }
+                            }
                         }
-                    }, 20);
+                    }, 30);
+
                 } else {
-                    // AprilTag描画処理
+                    // AprilTag モード描画
                     ctx.fillStyle = "black";
                     ctx.fillRect(0, 0, 400, 400);
 
@@ -522,8 +461,8 @@
                         for (let c = 0; c < gridSize; c++) {
                             const cellIdx = r * gridSize + c;
                             const charCode = cellIdx < headerText.length ? headerText.charCodeAt(cellIdx) : 0;
-                            const x = padding + c * (tagSize + padding);
-                            const y = padding + r * (tagSize + padding);
+                            const x = 10 + padding + c * (tagSize + padding);
+                            const y = 10 + padding + r * (tagSize + padding);
                             drawAprilTag(ctx, charCode, x, y, tagSize);
                         }
                     }
@@ -537,24 +476,26 @@
         async function runReceiver() {
             const cameraId = document.getElementById('camera-select').value;
             const video = document.getElementById('receive-video');
+            const videoBox = document.getElementById('video-box');
             const scanCanvas = document.getElementById('scan-canvas');
             const scanCtx = scanCanvas.getContext('2d');
             const overlay = document.getElementById('roi-overlay');
 
-            video.style.display = 'inline-block';
+            videoBox.style.display = 'inline-block';
+            video.style.display = 'block';
             overlay.style.display = 'block';
-            document.getElementById('sender-controls').style.display = 'none';
             document.getElementById('send-canvas').style.display = 'none';
-            document.getElementById('status-label').innerText = "📥 カメラ解析中...";
-
-            receivedChunks = {};
-            totalChunksExpected = null;
+            document.getElementById('status-label').innerText = "📥 カメラ起動中...";
 
             try {
                 videoStream = await navigator.mediaDevices.getUserMedia({
-                    video: cameraId ? {deviceId: {exact: cameraId}} : true
+                    video: cameraId ? { deviceId: { exact: cameraId } } : true
                 });
                 video.srcObject = videoStream;
+
+                video.onloadedmetadata = () => {
+                    document.getElementById('status-label').innerText = "📥 解析中...";
+                };
 
                 scanTimer = setInterval(() => {
                     if (video.readyState === video.HAVE_ENOUGH_DATA) {
@@ -563,7 +504,6 @@
 
                         let srcX = 0, srcY = 0, srcW = video.videoWidth, srcH = video.videoHeight;
 
-                        // ★キャリブレーション（ROIトリミング解析）
                         if (isCalibrated) {
                             srcX = video.videoWidth * 0.15;
                             srcY = video.videoHeight * 0.15;
@@ -583,23 +523,24 @@
                 }, 80);
 
             } catch (err) {
-                alert("カメラ起動に失敗しました: " + err.message);
+                alert("カメラの起動に失敗しました: " + err.message);
                 stopTransmission();
             }
         }
 
-        // --- 受信パケット解析 (Calculation.js 連携版) ---
+        // 受信データ解析
         function parseReceivedData(rawText) {
-            const result = Calculation.processReceivedPacket(rawText);
+            // #番号付き分割QRの場合のデータ抽出
+            const cleanText = rawText.split('#')[0];
+            const result = Calculation.processReceivedPacket(cleanText);
 
             if (result && result.isNew) {
-                log(`⚡ コマGET: [${result.receivedCount} / ${result.totalChunks}] (コマID: ${result.currentIdx})`);
+                log(`⚡ コマGET: [${result.receivedCount} / ${result.totalChunks}] (方式: ${result.protocol})`);
                 document.getElementById('status-label').innerText = `📥 受信中... (${result.receivedCount}/${result.totalChunks})`;
 
                 if (result.isComplete) {
                     log(`🎉【全件受信完了！】`);
-
-                    // ★ポップアップ（alert）を廃止し、最下部エリアに結果を表示！
+                    
                     const resultBox = document.getElementById('result-display');
                     const resultText = document.getElementById('result-text');
                     resultText.innerText = result.assembledData;
@@ -612,9 +553,8 @@
 
         window.onload = () => {
             loadCameras();
-            navigator.mediaDevices.getUserMedia({video: true}).then(loadCameras).catch(() => { });
+            navigator.mediaDevices.getUserMedia({ video: true }).then(loadCameras).catch(() => {});
         };
     </script>
 </body>
-
 </html>
