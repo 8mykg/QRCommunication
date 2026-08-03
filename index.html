@@ -22,21 +22,34 @@
             transition: background-color 0.3s;
         }
 
-        body.dark-mode {
+        /* 拡大＆シアターモード（レイアウトを崩さず自然に拡大） */
+        body.theater-mode {
             background-color: #000000 !important;
         }
 
-        body.dark-mode .card,
-        body.dark-mode h1 {
-            opacity: 0.1;
-            pointer-events: none;
+        body.theater-mode .card:not(#view-area) {
+            display: none !important;
+            /* メイン設定だけを隠す */
         }
 
-        body.dark-mode #view-area {
-            opacity: 1 !important;
-            pointer-events: auto;
-            background: #000;
-            border: none;
+        body.theater-mode #send-canvas {
+            width: 90vw;
+            max-width: 550px;
+            height: auto;
+        }
+
+        /* 復元結果表示ボックス */
+        #result-display {
+            background: #181825;
+            border: 2px solid #a6e3a1;
+            color: #a6e3a1;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            text-align: left;
+            word-break: break-all;
+            font-family: monospace;
+            display: none;
         }
 
         h1 {
@@ -269,9 +282,9 @@
     <div id="view-area" class="card">
         <h3 id="status-label">通信待機中...</h3>
 
-        <div id="sender-controls" style="display:none; margin-bottom: 10px;">
-            <button class="btn" onclick="toggleEnlarge()" style="font-size: 0.85em;">🔍 拡大/標準</button>
-            <button class="btn" onclick="toggleDarkMode()" style="font-size: 0.85em;">🌙 背景暗転</button>
+        <div id="active-controls" style="margin-bottom: 15px;">
+            <button type="button" class="btn" onclick="toggleTheaterMode()"
+                style="background: #cba6f7; color: #11111b;">🔍 拡大 ＆ 背景暗転</button>
         </div>
 
         <div id="qrcode-temp" style="display:none;"></div>
@@ -284,6 +297,11 @@
         <canvas id="scan-canvas" style="display:none;"></canvas>
 
         <div id="log-output">=== システムログ表示エリア ===\n</div>
+
+        <div id="result-display">
+            <strong style="color: #89b4fa;">🎉 復元完了データ:</strong>
+            <div id="result-text" style="margin-top: 8px; font-size: 1.1em;"></div>
+        </div>
     </div>
 
     <script>
@@ -323,8 +341,8 @@
             document.getElementById('send-canvas').classList.toggle('enlarged');
         }
 
-        function toggleDarkMode() {
-            document.body.classList.toggle('dark-mode');
+        function toggleTheaterMode() {
+            document.body.classList.toggle('theater-mode');
         }
 
         function toggleCalibration() {
@@ -345,8 +363,9 @@
             }
         }
 
+        // ボタンの有効/無効化（拡大ボタン等は除外）
         function setFormDisabled(disabled) {
-            const inputs = document.querySelectorAll('.card input, .card select, .card textarea, .card .btn');
+            const inputs = document.querySelectorAll('#main-card input, #main-card select, #main-card textarea, #main-card .btn');
             inputs.forEach(el => {
                 if (el.id !== 'btn-stop') el.disabled = disabled;
             });
@@ -375,12 +394,17 @@
             logBox.innerText = `[${time}] ${msg}\n` + logBox.innerText;
         }
 
+        // 通信開始
         async function startTransmission() {
+            // 1. 受信キャッシュを完全に初期化（2回目以降読み取れない問題の解決）
+            Calculation.resetReceiver();
+            document.getElementById('result-display').style.display = 'none';
+            document.getElementById('result-text').innerText = '';
+
             document.getElementById('view-area').style.display = 'block';
             document.getElementById('btn-start').style.display = 'none';
             document.getElementById('btn-stop').style.display = 'block';
 
-            // UIを無効化（誤操作防止）
             setFormDisabled(true);
 
             if (currentMode === 'send') {
@@ -390,6 +414,7 @@
             }
         }
 
+        // 通信停止
         function stopTransmission() {
             if (animationTimer) clearInterval(animationTimer);
             if (scanTimer) clearInterval(scanTimer);
@@ -397,15 +422,16 @@
                 videoStream.getTracks().forEach(track => track.stop());
             }
 
-            document.body.classList.remove('dark-mode');
+            // キャッシュのリセット
+            Calculation.resetReceiver();
+
+            document.body.classList.remove('theater-mode');
             document.getElementById('roi-overlay').style.display = 'none';
             document.getElementById('btn-start').style.display = 'block';
             document.getElementById('btn-stop').style.display = 'none';
             document.getElementById('status-label').innerText = "⏹️ 通信停止";
 
-            // UI無効化の解除
             setFormDisabled(false);
-            toggleStopCondition();
             log("システムを停止しました。");
         }
 
@@ -430,61 +456,83 @@
                 }
             }
         }
-        // --- 送信処理 (Calculation.js 連携版) ---
+
         function runSender() {
             const fps = parseInt(document.getElementById('fps-input').value) || 5;
-            const textData = document.getElementById('text-input').value || "No Data";
+
+            // ★入力フォームの値を直接取得（固定化の防止）
+            let textData = "";
+            if (dataType === 'text') {
+                textData = document.getElementById('text-input').value || "No Data";
+            } else {
+                textData = "File sending mode placeholder"; // ファイルモードは追って実装
+            }
+
             const protocol = document.getElementById('protocol-select').value;
             const gridSize = parseInt(document.getElementById('grid-size').value) || 3;
 
-            // Calculation.js の設定を更新
             Calculation.config.gridSize = gridSize;
             Calculation.config.protocol = protocol;
 
-            // ★ Calculation.js にデータパケットの作成を依頼！
             const packets = Calculation.preparePackets(textData);
             let packetIdx = 0;
 
             const canvas = document.getElementById('send-canvas');
             const ctx = canvas.getContext('2d');
             canvas.style.display = 'inline-block';
-            document.getElementById('sender-controls').style.display = 'block';
             document.getElementById('receive-video').style.display = 'none';
 
             const tempDiv = document.getElementById('qrcode-temp');
 
             document.getElementById('status-label').innerText = `📤 送信中 (${protocol.toUpperCase()} / ${fps} FPS)...`;
-            log(`【送信開始】 全 ${packets.length} パケット作成完了`);
+            log(`【送信開始】 モード: ${protocol.toUpperCase()} | グリッド: ${gridSize}x${gridSize} | 全 ${packets.length} パケット`);
 
             animationTimer = setInterval(() => {
                 if (packets.length === 0) return;
 
-                // 今フレームで送信するパケットを取得
                 const currentPacket = packets[packetIdx];
-                const headerText = currentPacket.headerText; // "1/3|データ" のようなヘッダー付き文字列
+                const headerText = currentPacket.headerText;
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
 
                 if (protocol === 'qr') {
                     tempDiv.innerHTML = "";
                     new QRCode(tempDiv, {
                         text: headerText,
-                        width: 350,
-                        height: 350,
+                        width: 380,
+                        height: 380,
                         correctLevel: QRCode.CorrectLevel.L
                     });
 
                     setTimeout(() => {
                         const img = tempDiv.querySelector('img');
                         if (img && img.complete) {
-                            ctx.clearRect(0, 0, canvas.width, canvas.height);
-                            ctx.drawImage(img, 25, 25, 350, 350);
+                            ctx.drawImage(img, 10, 10, 380, 380);
                         }
                     }, 20);
+                } else {
+                    // AprilTag描画処理
+                    ctx.fillStyle = "black";
+                    ctx.fillRect(0, 0, 400, 400);
+
+                    const padding = 10;
+                    const tagSize = (380 - (padding * (gridSize + 1))) / gridSize;
+
+                    for (let r = 0; r < gridSize; r++) {
+                        for (let c = 0; c < gridSize; c++) {
+                            const cellIdx = r * gridSize + c;
+                            const charCode = cellIdx < headerText.length ? headerText.charCodeAt(cellIdx) : 0;
+                            const x = padding + c * (tagSize + padding);
+                            const y = padding + r * (tagSize + padding);
+                            drawAprilTag(ctx, charCode, x, y, tagSize);
+                        }
+                    }
                 }
 
-                // 次のパケットへ
                 packetIdx = (packetIdx + 1) % packets.length;
             }, 1000 / fps);
         }
+
         // --- 受信処理 ---
         async function runReceiver() {
             const cameraId = document.getElementById('camera-select').value;
@@ -542,18 +590,21 @@
 
         // --- 受信パケット解析 (Calculation.js 連携版) ---
         function parseReceivedData(rawText) {
-            // ★ Calculation.js にパケットの解析・判定を依頼！
             const result = Calculation.processReceivedPacket(rawText);
 
-            // 新しいコマを取得できた場合のみ処理
             if (result && result.isNew) {
                 log(`⚡ コマGET: [${result.receivedCount} / ${result.totalChunks}] (コマID: ${result.currentIdx})`);
                 document.getElementById('status-label').innerText = `📥 受信中... (${result.receivedCount}/${result.totalChunks})`;
 
-                // 全コマ受信完了
                 if (result.isComplete) {
-                    log(`🎉【全件受信完了！】\n内容: ${result.assembledData}`);
-                    alert("🎉 全コマの読み込みに成功しました！\n\n復元データ:\n" + result.assembledData);
+                    log(`🎉【全件受信完了！】`);
+
+                    // ★ポップアップ（alert）を廃止し、最下部エリアに結果を表示！
+                    const resultBox = document.getElementById('result-display');
+                    const resultText = document.getElementById('result-text');
+                    resultText.innerText = result.assembledData;
+                    resultBox.style.display = 'block';
+
                     stopTransmission();
                 }
             }
