@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>光学データ通信システム (Optical Streamer)</title>
-
+    <script src="./Calculation.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 
@@ -430,48 +430,48 @@
                 }
             }
         }
-        // --- 送信処理（チラつき防止＆データ確実更新版） ---
+        // --- 送信処理 (Calculation.js 連携版) ---
         function runSender() {
             const fps = parseInt(document.getElementById('fps-input').value) || 5;
             const textData = document.getElementById('text-input').value || "No Data";
             const protocol = document.getElementById('protocol-select').value;
             const gridSize = parseInt(document.getElementById('grid-size').value) || 3;
 
-            // 1コマあたりの文字数（文字数が多すぎるとQRが複雑化して読みづらくなるため少し小さめに設定）
-            const chunkSize = 30;
-            const totalChunks = Math.ceil(textData.length / chunkSize) || 1;
-            let chunkIdx = 0;
+            // Calculation.js の設定を更新
+            Calculation.config.gridSize = gridSize;
+            Calculation.config.protocol = protocol;
+
+            // ★ Calculation.js にデータパケットの作成を依頼！
+            const packets = Calculation.preparePackets(textData);
+            let packetIdx = 0;
 
             const canvas = document.getElementById('send-canvas');
             const ctx = canvas.getContext('2d');
             canvas.style.display = 'inline-block';
+            document.getElementById('sender-controls').style.display = 'block';
             document.getElementById('receive-video').style.display = 'none';
 
-            // 裏で描画するための一時要素
             const tempDiv = document.getElementById('qrcode-temp');
 
             document.getElementById('status-label').innerText = `📤 送信中 (${protocol.toUpperCase()} / ${fps} FPS)...`;
-            log(`【送信開始】 全 ${textData.length} 文字 / ${totalChunks} コマ`);
+            log(`【送信開始】 全 ${packets.length} パケット作成完了`);
 
             animationTimer = setInterval(() => {
-                // 現在のコマのデータを切り出し
-                const start = chunkIdx * chunkSize;
-                const payload = textData.substring(start, start + chunkSize);
+                if (packets.length === 0) return;
 
-                // ヘッダー構文: "現在コマ/全コマ|データ"
-                const header = `${chunkIdx + 1}/${totalChunks}|${payload}`;
+                // 今フレームで送信するパケットを取得
+                const currentPacket = packets[packetIdx];
+                const headerText = currentPacket.headerText; // "1/3|データ" のようなヘッダー付き文字列
 
                 if (protocol === 'qr') {
-                    // 裏側で一度生成させてからCanvasへ描画（これでチラつきが消えます）
                     tempDiv.innerHTML = "";
                     new QRCode(tempDiv, {
-                        text: header,
+                        text: headerText,
                         width: 350,
                         height: 350,
-                        correctLevel: QRCode.CorrectLevel.L // 読み取りやすい軽量レベル
+                        correctLevel: QRCode.CorrectLevel.L
                     });
 
-                    // ほんのわずかだけ待ってCanvasに描画
                     setTimeout(() => {
                         const img = tempDiv.querySelector('img');
                         if (img && img.complete) {
@@ -481,8 +481,8 @@
                     }, 20);
                 }
 
-                // 毎フレーム確実に次のコマ番号へ進める
-                chunkIdx = (chunkIdx + 1) % totalChunks;
+                // 次のパケットへ
+                packetIdx = (packetIdx + 1) % packets.length;
             }, 1000 / fps);
         }
         // --- 受信処理 ---
@@ -540,42 +540,21 @@
             }
         }
 
-        // 受信判定と停止ロジック
-        function parseReceivedData(data) {
-            const match = data.match(/^(\d+)\/(\d+)\|(.*)$/s);
-            if (match) {
-                const currentIdx = parseInt(match[1]);
-                totalChunksExpected = parseInt(match[2]);
-                const payload = match[3];
+        // --- 受信パケット解析 (Calculation.js 連携版) ---
+        function parseReceivedData(rawText) {
+            // ★ Calculation.js にパケットの解析・判定を依頼！
+            const result = Calculation.processReceivedPacket(rawText);
 
-                if (!receivedChunks[currentIdx]) {
-                    receivedChunks[currentIdx] = payload;
-                    const count = Object.keys(receivedChunks).length;
+            // 新しいコマを取得できた場合のみ処理
+            if (result && result.isNew) {
+                log(`⚡ コマGET: [${result.receivedCount} / ${result.totalChunks}] (コマID: ${result.currentIdx})`);
+                document.getElementById('status-label').innerText = `📥 受信中... (${result.receivedCount}/${result.totalChunks})`;
 
-                    log(`⚡ コマGET: [${count} / ${totalChunksExpected}] (コマID: ${currentIdx})`);
-                    document.getElementById('status-label').innerText = `📥 受信中... (${count}/${totalChunksExpected})`;
-
-                    // 停止条件のチェック
-                    const stopCond = document.querySelector('input[name="stop-condition"]:checked').value;
-                    const targetChunks = parseInt(document.getElementById('target-chunks-input').value) || 10;
-
-                    let isComplete = false;
-                    if (stopCond === 'auto' && count === totalChunksExpected) {
-                        isComplete = true;
-                    } else if (stopCond === 'manual' && count >= targetChunks) {
-                        isComplete = true;
-                    }
-
-                    if (isComplete) {
-                        let fullText = "";
-                        const maxIndex = stopCond === 'auto' ? totalChunksExpected : Math.min(count, targetChunks);
-                        for (let i = 1; i <= maxIndex; i++) {
-                            fullText += receivedChunks[i] || "";
-                        }
-                        log(`🎉【受信完了！】\n内容: ${fullText}`);
-                        alert("🎉 条件達成！受信を完了しました。\n\n復元データ:\n" + fullText);
-                        stopTransmission();
-                    }
+                // 全コマ受信完了
+                if (result.isComplete) {
+                    log(`🎉【全件受信完了！】\n内容: ${result.assembledData}`);
+                    alert("🎉 全コマの読み込みに成功しました！\n\n復元データ:\n" + result.assembledData);
+                    stopTransmission();
                 }
             }
         }
