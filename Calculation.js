@@ -15,6 +15,21 @@ const Calculation = {
         detectedGridSize: null
     },
 
+    checksumFor(payload) {
+        let hash = 2166136261;
+        for (let i = 0; i < payload.length; i++) {
+            hash ^= payload.charCodeAt(i);
+            hash = Math.imul(hash, 16777619);
+        }
+        return (hash >>> 0).toString(16).padStart(8, '0');
+    },
+
+    validateChecksum(payload, checksum) {
+        if (!checksum) return true;
+        if (typeof checksum !== 'string') return false;
+        return checksum.toLowerCase() === this.checksumFor(payload).toLowerCase();
+    },
+
     preparePackets(rawData) {
         if (!rawData) return [];
 
@@ -26,15 +41,18 @@ const Calculation = {
         for (let i = 0; i < totalChunks; i++) {
             const start = i * this.config.chunkSize;
             const payload = rawData.substring(start, start + this.config.chunkSize);
-            
-            // ★拡張ヘッダー: "方式|グリッド|現在コマ/全コマ|データ"
-            const header = `${protoFlag}|${gridFlag}|${i + 1}/${totalChunks}|${payload}`;
-            
+            const checksum = this.checksumFor(payload);
+
+            const header = `${protoFlag}|${gridFlag}|${i + 1}/${totalChunks}|${payload}|${checksum}`;
+
             packets.push({
                 chunkIdx: i + 1,
                 totalChunks: totalChunks,
+                protocol: protoFlag,
+                gridSize: gridFlag,
                 headerText: header,
-                payload: payload
+                payload: payload,
+                checksum: checksum
             });
         }
 
@@ -42,14 +60,19 @@ const Calculation = {
     },
 
     processReceivedPacket(rawHeader) {
-        // 例: "QR|2x2|1/3|Hello" のパース
+        // 例: "QR|2x2|1/3|Hello|A1B2C3D4" のパース
         const parts = rawHeader.split('|');
         if (parts.length < 4) return null;
 
         const protocol = parts[0];
         const gridSizeStr = parts[1];
         const progressStr = parts[2];
+        const maybeChecksum = /^[0-9a-fA-F]{8}$/.test(parts[parts.length - 1]) ? parts.pop() : null;
         const payload = parts.slice(3).join('|');
+
+        if (maybeChecksum && !this.validateChecksum(payload, maybeChecksum)) {
+            return null;
+        }
 
         const match = progressStr.match(/^(\d+)\/(\d+)$/);
         if (!match) return null;
@@ -63,7 +86,7 @@ const Calculation = {
 
         if (!this.receiverState.chunks[currentIdx]) {
             this.receiverState.chunks[currentIdx] = payload;
-            
+
             const currentCount = Object.keys(this.receiverState.chunks).length;
             const isComplete = currentCount === totalChunks;
 
@@ -75,6 +98,7 @@ const Calculation = {
                 totalChunks: totalChunks,
                 receivedCount: currentCount,
                 payload: payload,
+                checksum: maybeChecksum,
                 isComplete: isComplete,
                 assembledData: isComplete ? this.assembleData() : null
             };

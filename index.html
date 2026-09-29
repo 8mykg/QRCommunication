@@ -574,8 +574,9 @@
 
         // 受信データ解析
         function parseReceivedData(rawText) {
-            // #番号付き分割QRの場合のデータ抽出
-            const cleanText = rawText.split('#')[0];
+            const cleanText = String(rawText || '').replace(/\r?\n/g, '').trim();
+            if (!cleanText) return;
+
             const result = Calculation.processReceivedPacket(cleanText);
 
             if (result && result.isNew) {
