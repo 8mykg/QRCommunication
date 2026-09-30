@@ -192,6 +192,92 @@
             font-family: monospace;
             display: none;
         }
+
+        #transport-status {
+            background: #1b1b2a;
+            border: 1px solid #6c7ae0;
+            padding: 15px;
+            margin-top: 15px;
+            border-radius: 10px;
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .status-item {
+            background: #11111b;
+            border: 1px solid #45475a;
+            border-radius: 8px;
+            padding: 10px;
+        }
+
+        .status-item .label {
+            display: block;
+            font-size: 0.7em;
+            color: #a6adc8;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .status-item .value {
+            display: block;
+            color: #cdd6f4;
+            font-weight: bold;
+            word-break: break-word;
+        }
+
+        .demo-panel {
+            display: none;
+            margin-top: 18px;
+            background: #1b1b2a;
+            border: 1px solid #7dcfff;
+            border-radius: 12px;
+            padding: 15px;
+        }
+
+        .demo-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+        }
+
+        .demo-card {
+            background: #11111b;
+            border: 1px solid #45475a;
+            border-radius: 10px;
+            padding: 12px;
+        }
+
+        .demo-card h4 {
+            margin: 0 0 10px;
+            color: #89b4fa;
+        }
+
+        .demo-metric {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            color: #cdd6f4;
+            font-size: 0.9em;
+        }
+
+        .demo-log {
+            margin-top: 12px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 10px;
+            min-height: 110px;
+            color: #cbd5e1;
+            font-family: monospace;
+            white-space: pre-wrap;
+            font-size: 0.78em;
+        }
     </style>
 </head>
 
@@ -254,8 +340,31 @@
                 style="background: #fab387; color: #11111b;">🎯 解析枠を固定する</button>
         </div>
 
+        <div style="margin-top: 12px;">
+            <button class="btn" id="btn-demo-start" onclick="startDemoExchange()" style="background: #7dcfff; color: #11111b;">🎭 同時通信デモUI</button>
+        </div>
+
         <button class="btn btn-start" id="btn-start" onclick="startTransmission()">🚀 通信実行 (START)</button>
         <button class="btn btn-stop" id="btn-stop" onclick="stopTransmission()">⏹️ 停止 (STOP)</button>
+    </div>
+
+    <div id="demo-panel" class="demo-panel">
+        <h3 style="margin-top:0; color:#a6e3a1;">🧪 同時通信デモ</h3>
+        <div class="demo-grid">
+            <div class="demo-card">
+                <h4>Sender</h4>
+                <div class="demo-metric"><span>Session</span><strong id="demo-sender-session">-</strong></div>
+                <div class="demo-metric"><span>Packets</span><strong id="demo-sender-packets">0</strong></div>
+                <div class="demo-metric"><span>Retry</span><strong id="demo-sender-retry">-</strong></div>
+            </div>
+            <div class="demo-card">
+                <h4>Receiver</h4>
+                <div class="demo-metric"><span>Received</span><strong id="demo-receiver-progress">0 / 0</strong></div>
+                <div class="demo-metric"><span>Missing</span><strong id="demo-receiver-missing">-</strong></div>
+                <div class="demo-metric"><span>Last ACK</span><strong id="demo-receiver-ack">-</strong></div>
+            </div>
+        </div>
+        <div class="demo-log" id="demo-log">デモ開始待機中...</div>
     </div>
 
     <div id="view-area" class="card">
@@ -274,6 +383,18 @@
             <div id="roi-overlay"></div>
         </div>
         <canvas id="scan-canvas" style="display:none;"></canvas>
+
+        <div id="transport-status">
+            <strong style="color: #89b4fa;">📡 トランスポート状態</strong>
+            <div class="status-grid">
+                <div class="status-item"><span class="label">Session</span><span class="value" id="status-session">-</span></div>
+                <div class="status-item"><span class="label">Progress</span><span class="value" id="status-progress">0 / 0</span></div>
+                <div class="status-item"><span class="label">Missing</span><span class="value" id="status-missing">-</span></div>
+                <div class="status-item"><span class="label">Retry</span><span class="value" id="status-retry">-</span></div>
+                <div class="status-item"><span class="label">Next</span><span class="value" id="status-next-retry">-</span></div>
+                <div class="status-item"><span class="label">Last ACK</span><span class="value" id="status-last-ack">-</span></div>
+            </div>
+        </div>
 
         <div id="log-output">=== システムログ表示エリア ===\n</div>
 
@@ -353,10 +474,108 @@
             }
         }
 
+        function updateTransportStatus() {
+            const sessionContext = Calculation.getSessionContext ? Calculation.getSessionContext() : { sessionId: null, retryQueue: [], nextRetryIndex: null, lastAck: null };
+            const senderContext = Calculation.getSenderContext ? Calculation.getSenderContext() : { sessionId: null, packetsTotal: 0, retryQueue: [], nextRetryChunk: null };
+            const sessionId = sessionContext.sessionId || senderContext.sessionId || 'waiting';
+            const progress = Calculation.getProgressSummary ? Calculation.getProgressSummary() : { receivedCount: 0, totalChunks: 0, missingIndexes: [], hasMissing: false };
+            const retryQueue = Array.isArray(sessionContext.retryQueue) && sessionContext.retryQueue.length ? sessionContext.retryQueue : (Array.isArray(senderContext.retryQueue) ? senderContext.retryQueue : []);
+            const lastAck = sessionContext.lastAck ? `${sessionContext.lastAck.chunkIdx ?? '-'}(${sessionContext.lastAck.status})` : 'none';
+
+            document.getElementById('status-session').innerText = sessionId;
+            document.getElementById('status-progress').innerText = `${progress.receivedCount} / ${progress.totalChunks || senderContext.packetsTotal || 0}`;
+            document.getElementById('status-missing').innerText = progress.hasMissing ? progress.missingIndexes.join(', ') : 'none';
+            document.getElementById('status-retry').innerText = retryQueue.length ? retryQueue.join(', ') : 'none';
+            document.getElementById('status-next-retry').innerText = sessionContext.nextRetryIndex ?? senderContext.nextRetryChunk ?? 'none';
+            document.getElementById('status-last-ack').innerText = lastAck;
+        }
+
         function log(msg) {
             const logBox = document.getElementById('log-output');
             const time = new Date().toLocaleTimeString();
             logBox.innerText = `[${time}] ${msg}\n` + logBox.innerText;
+            updateTransportStatus();
+        }
+
+        function writeDemoLog(msg) {
+            const logBox = document.getElementById('demo-log');
+            const time = new Date().toLocaleTimeString();
+            logBox.innerText = `[${time}] ${msg}\n` + logBox.innerText;
+        }
+
+        function refreshDemoPanel() {
+            const senderContext = Calculation.getSenderContext ? Calculation.getSenderContext() : { sessionId: 'idle', packetsTotal: 0, retryQueue: [], nextRetryChunk: null };
+            const sessionContext = Calculation.getSessionContext ? Calculation.getSessionContext() : { retryQueue: [], nextRetryIndex: null, lastAck: null };
+            const progress = Calculation.getProgressSummary ? Calculation.getProgressSummary() : { receivedCount: 0, totalChunks: 0, missingIndexes: [], hasMissing: false };
+
+            document.getElementById('demo-sender-session').innerText = senderContext.sessionId || 'idle';
+            document.getElementById('demo-sender-packets').innerText = String(senderContext.packetsTotal || progress.totalChunks || 0);
+            document.getElementById('demo-sender-retry').innerText = senderContext.retryQueue && senderContext.retryQueue.length ? senderContext.retryQueue.join(', ') : 'none';
+            document.getElementById('demo-receiver-progress').innerText = `${progress.receivedCount} / ${progress.totalChunks || senderContext.packetsTotal || 0}`;
+            document.getElementById('demo-receiver-missing').innerText = progress.hasMissing ? progress.missingIndexes.join(', ') : 'none';
+            document.getElementById('demo-receiver-ack').innerText = sessionContext.lastAck ? `${sessionContext.lastAck.chunkIdx ?? '-'}(${sessionContext.lastAck.status})` : 'none';
+        }
+
+        function startDemoExchange() {
+            const textData = document.getElementById('text-input').value || 'Hello Optical Stream!';
+            const protocol = document.getElementById('protocol-select').value;
+            const gridSize = parseInt(document.getElementById('grid-size').value) || 2;
+
+            Calculation.config.gridSize = gridSize;
+            Calculation.config.protocol = protocol;
+            Calculation.resetReceiver();
+            Calculation.resetSender();
+            Calculation.resetSession();
+
+            const sessionId = Calculation.createSession('demo-session');
+            const packets = Calculation.preparePackets(textData);
+            Calculation.senderState = {
+                sessionId,
+                packets,
+                retryQueue: []
+            };
+
+            const panel = document.getElementById('demo-panel');
+            panel.style.display = 'block';
+            document.getElementById('demo-log').innerText = '';
+
+            writeDemoLog(`🤝 HELLO ${sessionId} / ${protocol.toUpperCase()} / ${gridSize}x${gridSize}`);
+            writeDemoLog(`📨 送信対象: ${packets.length} packets`);
+            refreshDemoPanel();
+
+            let index = 0;
+            let simulated = false;
+
+            const demoTimer = setInterval(() => {
+                if (index >= packets.length) {
+                    clearInterval(demoTimer);
+                    writeDemoLog('✅ 同時通信デモ完了: 送受信が完了しました');
+                    refreshDemoPanel();
+                    return;
+                }
+
+                const packet = packets[index];
+                const result = Calculation.processReceivedPacket(packet.headerText);
+                if (result && result.isNew) {
+                    const ack = Calculation.buildAckPacket(sessionId, result.currentIdx, 'ok');
+                    Calculation.recordAck(sessionId, result.currentIdx, 'ok');
+                    writeDemoLog(`📡 ACK ${ack}`);
+                    if (index === 1) {
+                        const missingChunk = 2;
+                        Calculation.queueRetryChunk(missingChunk);
+                        Calculation.recordAck(sessionId, missingChunk, 'missing');
+                        writeDemoLog(`⚠️ 再送要求: chunk ${missingChunk}`);
+                    }
+                }
+
+                if (!simulated) {
+                    simulated = true;
+                    writeDemoLog(`📤 Sender: session ${sessionId} / first packet ${packet.chunkIdx}/${packets.length}`);
+                }
+
+                refreshDemoPanel();
+                index += 1;
+            }, 700);
         }
 
         async function startTransmission() {
@@ -369,6 +588,7 @@
             document.getElementById('btn-stop').style.display = 'block';
 
             setFormDisabled(true);
+            updateTransportStatus();
 
             if (currentMode === 'send') {
                 if (dataType === 'file') {
@@ -408,26 +628,25 @@
             if (animationTimer) clearInterval(animationTimer);
             if (scanTimer) clearInterval(scanTimer);
 
-            // カメラのストップ
             if (videoStream) {
                 videoStream.getTracks().forEach(track => track.stop());
                 videoStream = null;
             }
 
             const video = document.getElementById('receive-video');
-            video.srcObject = null;
+            if (video) video.srcObject = null;
 
-            // キャンバスのクリア
             const sendCanvas = document.getElementById('send-canvas');
             const sendCtx = sendCanvas.getContext('2d');
             sendCtx.clearRect(0, 0, sendCanvas.width, sendCanvas.height);
 
-            // 要素の非表示化
             sendCanvas.style.display = 'none';
             document.getElementById('video-box').style.display = 'none';
             document.getElementById('roi-overlay').style.display = 'none';
 
             Calculation.resetReceiver();
+            Calculation.resetSender();
+            Calculation.resetSession();
 
             document.body.classList.remove('theater-mode');
             document.getElementById('btn-start').style.display = 'block';
@@ -435,6 +654,7 @@
             document.getElementById('status-label').innerText = "⏹️ 通信停止";
 
             setFormDisabled(false);
+            updateTransportStatus();
             log("システムを停止しました。");
         }
 
@@ -472,9 +692,18 @@
 
             Calculation.config.gridSize = gridSize;
             Calculation.config.protocol = protocol;
-
+            const sessionId = Calculation.createSession();
+            const helloPacket = Calculation.buildHandshakePacket(sessionId, protocol, gridSize);
             const packets = Calculation.preparePackets(textData);
+
+            Calculation.senderState = {
+                sessionId: sessionId,
+                packets: packets,
+                retryQueue: []
+            };
+
             let packetIdx = 0;
+            let helloSent = false;
 
             const canvas = document.getElementById('send-canvas');
             const ctx = canvas.getContext('2d');
@@ -484,16 +713,14 @@
             const container = document.getElementById('qrcode-temp-container');
 
             document.getElementById('status-label').innerText = `📤 送信中 (${protocol.toUpperCase()} / ${fps} FPS)...`;
-            log(`【送信開始】 ${protocol.toUpperCase()} | ${gridSize}x${gridSize} | 全 ${packets.length} コマ`);
+            updateTransportStatus();
+            log(`【送信開始】 session=${sessionId} | ${protocol.toUpperCase()} | ${gridSize}x${gridSize} | 全 ${packets.length} コマ`);
+            log(`🤝 HELLO送信: ${helloPacket}`);
 
-            animationTimer = setInterval(() => {
-                if (packets.length === 0) return;
-
-                const currentPacket = packets[packetIdx];
-                const headerText = currentPacket.headerText;
+            const renderPacket = (targetPacket, index) => {
+                const headerText = targetPacket.headerText;
 
                 if (protocol === 'qr') {
-                    // --- QRモード（裏で完全生成してから表に一気に描画＝チラつきゼロ） ---
                     container.innerHTML = "";
                     const qrDiv = document.createElement('div');
                     container.appendChild(qrDiv);
@@ -505,7 +732,6 @@
                         correctLevel: QRCode.CorrectLevel.L
                     });
 
-                    // 完全に生成が終わるのを待ってから「一瞬で上書き描画」（画面消去を挟まない）
                     setTimeout(() => {
                         const img = qrDiv.querySelector('img');
                         if (img && img.complete) {
@@ -514,7 +740,6 @@
                     }, 10);
 
                 } else {
-                    // --- AprilTag モード（コマ番号を動的に変化させる描画） ---
                     ctx.fillStyle = "black";
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -525,9 +750,7 @@
                     for (let r = 0; r < gridSize; r++) {
                         for (let c = 0; c < gridSize; c++) {
                             const cellIdx = r * gridSize + c;
-
-                            // コマ番号（packetIdx）とセル番号を組み合わせた変化する数値を作成
-                            const dynamicValue = (packetIdx + 1) * 10 + cellIdx + (headerText.charCodeAt(cellIdx % headerText.length) || 0);
+                            const dynamicValue = (index + 1) * 10 + cellIdx + (headerText.charCodeAt(cellIdx % headerText.length) || 0);
 
                             const x = padding + c * (tagSize + padding);
                             const y = padding + r * (tagSize + padding);
@@ -536,8 +759,30 @@
                         }
                     }
                 }
+            };
 
-                // 確実にコマを進める
+            animationTimer = setInterval(() => {
+                if (packets.length === 0) return;
+
+                if (Calculation.senderState.retryQueue.length > 0) {
+                    const retryIndex = Calculation.senderState.retryQueue.shift();
+                    const retryPacket = packets[retryIndex - 1];
+                    if (retryPacket) {
+                        renderPacket(retryPacket, retryIndex - 1);
+                        log(`🔁 再送実行: session=${sessionId} | chunk=${retryIndex}`);
+                    updateTransportStatus();
+                    }
+                    return;
+                }
+
+                const currentPacket = helloSent ? packets[packetIdx] : { headerText: helloPacket };
+                renderPacket(currentPacket, helloSent ? packetIdx : 0);
+
+                if (!helloSent) {
+                    helloSent = true;
+                    return;
+                }
+
                 packetIdx = (packetIdx + 1) % packets.length;
             }, 1000 / fps);
         }
@@ -603,6 +848,23 @@
             const cleanText = String(rawText || '').replace(/\r?\n/g, '').trim();
             if (!cleanText) return;
 
+            const handshake = Calculation.parseHandshakePacket(cleanText);
+            if (handshake) {
+                Calculation.attachHandshake(handshake);
+                log(`🤝 HELLO受信: session=${handshake.sessionId} | protocol=${handshake.protocol} | grid=${handshake.gridSize}`);
+                document.getElementById('status-label').innerText = `📥 受信中... session=${handshake.sessionId}`;
+                updateTransportStatus();
+                return;
+            }
+
+            const ack = Calculation.parseAckPacket(cleanText);
+            if (ack) {
+                Calculation.recordAck(ack.sessionId, ack.chunkIdx, ack.status);
+                log(`📬 ACK受信: session=${ack.sessionId} | chunk=${ack.chunkIdx} | status=${ack.status}`);
+                updateTransportStatus();
+                return;
+            }
+
             const result = Calculation.processReceivedPacket(cleanText);
 
             if (!result) {
@@ -613,17 +875,33 @@
             const progress = Calculation.getProgressSummary();
 
             if (result.isNew) {
+                const sessionId = Calculation.sessionState.id || 'unknown';
+                const ackPacket = Calculation.buildAckPacket(sessionId, result.currentIdx, 'ok');
+                Calculation.recordAck(sessionId, result.currentIdx, 'ok');
                 log(`⚡ コマGET: [${progress.receivedCount} / ${progress.totalChunks}] (方式: ${result.protocol})`);
+                log(`📡 ACK送信: ${ackPacket}`);
+                updateTransportStatus();
                 document.getElementById('status-label').innerText = `📥 受信中... (${progress.receivedCount}/${progress.totalChunks})`;
 
                 if (progress.hasMissing) {
                     const retryStatus = Calculation.getRetryStatus();
+                    const retrySchedule = Calculation.scheduleRetry();
+                    const sessionContext = Calculation.getSessionContext();
                     const missingPreview = progress.missingIndexes.slice(0, 5).join(', ');
                     const retryQueue = retryStatus.retryQueue;
+                    const nextMissingChunk = retryStatus.nextRetryIndex;
+                    const missingAckPacket = Calculation.buildAckPacket(sessionId, nextMissingChunk, 'missing');
+
+                    Calculation.recordAck(sessionId, nextMissingChunk, 'missing');
+                    Calculation.queueRetryChunk(nextMissingChunk);
+
                     document.getElementById('status-label').innerText += ` / 欠損: ${missingPreview}`;
                     log(`⚠️ 再読取対象: ${missingPreview}`);
+                    log(`📡 再送要求送信: ${missingAckPacket}`);
                     log(`🔁 再送キュー: ${retryQueue.join(', ')}`);
                     log(`🎯 次の再送対象: chunk ${retryStatus.nextRetryIndex}`);
+                    log(`⏱️ 再送スケジュール: ${retrySchedule.timeoutMs}ms 後に再試行`);
+                    log(`📡 セッション: ${sessionContext.sessionId} / 再送待ち=${sessionContext.isRetryRequired}`);
                 }
 
                 if (result.isComplete) {

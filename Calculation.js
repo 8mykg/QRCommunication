@@ -15,6 +15,131 @@ const Calculation = {
         detectedGridSize: null
     },
 
+    sessionState: {
+        id: null,
+        startedAt: null,
+        lastHandshake: null,
+        lastAck: null
+    },
+
+    senderState: {
+        sessionId: null,
+        packets: [],
+        retryQueue: []
+    },
+
+    createSession(sessionId = null) {
+        const generatedId = sessionId || `session-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+        this.sessionState.id = generatedId;
+        this.sessionState.startedAt = Date.now();
+        return generatedId;
+    },
+
+    attachHandshake(handshake) {
+        if (!handshake) return null;
+        this.sessionState.id = handshake.sessionId || this.sessionState.id;
+        this.sessionState.startedAt = this.sessionState.startedAt || Date.now();
+        this.sessionState.lastHandshake = {
+            ...handshake,
+            receivedAt: Date.now()
+        };
+        return this.sessionState.lastHandshake;
+    },
+
+    recordAck(sessionId, chunkIdx, status = 'ok') {
+        const entry = {
+            sessionId: sessionId || this.sessionState.id,
+            chunkIdx: chunkIdx ?? null,
+            status,
+            receivedAt: Date.now()
+        };
+        this.sessionState.lastAck = entry;
+
+        if (String(status).toLowerCase() === 'missing' && Number.isFinite(Number(chunkIdx))) {
+            const retryIndex = Number(chunkIdx);
+            if (!this.senderState.retryQueue.includes(retryIndex)) {
+                this.senderState.retryQueue.push(retryIndex);
+            }
+        }
+
+        return entry;
+    },
+
+    queueRetryChunk(chunkIdx) {
+        const retryIndex = Number(chunkIdx);
+        if (!Number.isFinite(retryIndex)) return this.senderState.retryQueue;
+        if (!this.senderState.retryQueue.includes(retryIndex)) {
+            this.senderState.retryQueue.push(retryIndex);
+        }
+        return this.senderState.retryQueue;
+    },
+
+    buildHandshakePacket(sessionId = this.sessionState.id, protocol = this.config.protocol, gridSize = this.config.gridSize) {
+        const session = sessionId || this.createSession();
+        return `HELLO|${session}|${String(protocol).toUpperCase()}|${gridSize}x${gridSize}`;
+    },
+
+    parseHandshakePacket(rawHeader) {
+        const parts = String(rawHeader || '').split('|');
+        if (parts.length < 4 || parts[0] !== 'HELLO') return null;
+
+        return {
+            type: 'HELLO',
+            sessionId: parts[1],
+            protocol: parts[2],
+            gridSize: parts[3],
+            accepted: true
+        };
+    },
+
+    buildAckPacket(sessionId = this.sessionState.id, chunkIdx, status = 'ok') {
+        const session = sessionId || this.createSession();
+        return `ACK|${session}|${chunkIdx}|${status}`;
+    },
+
+    parseAckPacket(rawHeader) {
+        const parts = String(rawHeader || '').split('|');
+        if (parts.length < 4 || parts[0] !== 'ACK') return null;
+
+        const chunkIdx = Number(parts[2]);
+
+        return {
+            type: 'ACK',
+            sessionId: parts[1],
+            chunkIdx: Number.isFinite(chunkIdx) ? chunkIdx : null,
+            status: parts[3] || 'ok'
+        };
+    },
+
+    getSessionContext() {
+        const reply = this.getRetryStatus();
+        const progress = this.getProgressSummary();
+
+        return {
+            sessionId: this.sessionState.id,
+            startedAt: this.sessionState.startedAt,
+            lastHandshake: this.sessionState.lastHandshake,
+            lastAck: this.sessionState.lastAck,
+            totalChunks: progress.totalChunks,
+            receivedCount: progress.receivedCount,
+            retryQueue: reply.retryQueue,
+            nextRetryIndex: reply.nextRetryIndex,
+            isReady: progress.totalChunks > 0 && progress.missingCount === 0,
+            isRetryRequired: reply.retryQueue.length > 0,
+            timeoutMs: this.scheduleRetry().timeoutMs
+        };
+    },
+
+    getSenderContext() {
+        return {
+            sessionId: this.senderState.sessionId,
+            packetsTotal: this.senderState.packets.length,
+            retryQueue: [...this.senderState.retryQueue],
+            nextRetryChunk: this.senderState.retryQueue[0] ?? null,
+            isWaitingRetry: this.senderState.retryQueue.length > 0
+        };
+    },
+
     checksumFor(payload) {
         let hash = 2166136261;
         for (let i = 0; i < payload.length; i++) {
@@ -172,11 +297,42 @@ const Calculation = {
         return status;
     },
 
+    scheduleRetry() {
+        const retryStatus = this.getRetryStatus();
+        const enabled = retryStatus.isRetryRequired;
+        const timeoutMs = enabled ? 1500 : 0;
+
+        return {
+            enabled: enabled,
+            retryQueue: retryStatus.retryQueue,
+            nextRetryIndex: retryStatus.nextRetryIndex,
+            timeoutMs: timeoutMs,
+            scheduledAt: Date.now()
+        };
+    },
+
     resetReceiver() {
         this.receiverState.chunks = {};
         this.receiverState.totalExpected = null;
         this.receiverState.detectedProtocol = null;
         this.receiverState.detectedGridSize = null;
+    },
+
+    resetSender() {
+        this.senderState = {
+            sessionId: null,
+            packets: [],
+            retryQueue: []
+        };
+    },
+
+    resetSession() {
+        this.sessionState = {
+            id: null,
+            startedAt: null,
+            lastHandshake: null,
+            lastAck: null
+        };
     }
 };
 

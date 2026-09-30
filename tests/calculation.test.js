@@ -98,3 +98,41 @@ test('getRetryStatus identifies the next retry target', () => {
   assert.equal(status.nextRetryIndex, 2);
   assert.deepEqual(status.retryQueue, [2]);
 });
+
+test('scheduleRetry creates a timed retry window for missing chunks', () => {
+  Calculation.resetReceiver();
+  Calculation.receiverState.totalExpected = 3;
+  Calculation.receiverState.chunks = { 1: 'A', 3: 'C' };
+
+  const retryState = Calculation.scheduleRetry();
+
+  assert.equal(retryState.enabled, true);
+  assert.equal(retryState.retryQueue.length, 1);
+  assert.equal(retryState.retryQueue[0], 2);
+  assert.equal(retryState.timeoutMs > 0, true);
+});
+
+test('buildAckPacket and parseAckPacket support TCP-like session acknowledgement', () => {
+  const sessionId = 'demo-session';
+  const ack = Calculation.buildAckPacket(sessionId, 2);
+  const parsed = Calculation.parseAckPacket(ack);
+
+  assert.equal(parsed.type, 'ACK');
+  assert.equal(parsed.sessionId, sessionId);
+  assert.equal(parsed.chunkIdx, 2);
+  assert.equal(parsed.status, 'ok');
+});
+
+test('session state exposes handshake and retry context together', () => {
+  const sessionId = Calculation.createSession('session-ctx');
+  Calculation.receiverState.totalExpected = 4;
+  Calculation.receiverState.chunks = { 1: 'A', 3: 'C' };
+
+  const session = Calculation.getSessionContext();
+
+  assert.equal(session.sessionId, sessionId);
+  assert.equal(session.isReady, false);
+  assert.equal(session.retryQueue.length, 2);
+  assert.deepEqual(session.retryQueue, [2, 4]);
+  assert.equal(session.nextRetryIndex, 2);
+});
