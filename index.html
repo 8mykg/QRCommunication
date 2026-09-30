@@ -371,6 +371,32 @@
             setFormDisabled(true);
 
             if (currentMode === 'send') {
+                if (dataType === 'file') {
+                    const fileInput = document.getElementById('file-input');
+                    const file = fileInput.files && fileInput.files[0];
+                    if (!file) {
+                        alert('送信ファイルを選択してください。');
+                        setFormDisabled(false);
+                        document.getElementById('btn-start').style.display = 'block';
+                        document.getElementById('btn-stop').style.display = 'none';
+                        return;
+                    }
+
+                    try {
+                        const fileText = await file.text();
+                        Calculation.config.gridSize = parseInt(document.getElementById('grid-size').value) || 2;
+                        Calculation.config.protocol = document.getElementById('protocol-select').value;
+                        runSender(fileText);
+                        return;
+                    } catch (error) {
+                        alert('ファイルの読み込みに失敗しました: ' + error.message);
+                        setFormDisabled(false);
+                        document.getElementById('btn-start').style.display = 'block';
+                        document.getElementById('btn-stop').style.display = 'none';
+                        return;
+                    }
+                }
+
                 runSender();
             } else {
                 runReceiver();
@@ -438,9 +464,9 @@
         }
 
         // --- 送信処理 ---
-        function runSender() {
+        function runSender(customText = null) {
             const fps = parseInt(document.getElementById('fps-input').value) || 5;
-            const textData = document.getElementById('text-input').value || "No Data";
+            const textData = customText ?? (document.getElementById('text-input').value || "No Data");
             const protocol = document.getElementById('protocol-select').value;
             const gridSize = parseInt(document.getElementById('grid-size').value) || 2;
 
@@ -579,9 +605,26 @@
 
             const result = Calculation.processReceivedPacket(cleanText);
 
-            if (result && result.isNew) {
-                log(`⚡ コマGET: [${result.receivedCount} / ${result.totalChunks}] (方式: ${result.protocol})`);
-                document.getElementById('status-label').innerText = `📥 受信中... (${result.receivedCount}/${result.totalChunks})`;
+            if (!result) {
+                log('⚠️ 破損または不正なQRパケットを無視しました');
+                return;
+            }
+
+            const progress = Calculation.getProgressSummary();
+
+            if (result.isNew) {
+                log(`⚡ コマGET: [${progress.receivedCount} / ${progress.totalChunks}] (方式: ${result.protocol})`);
+                document.getElementById('status-label').innerText = `📥 受信中... (${progress.receivedCount}/${progress.totalChunks})`;
+
+                if (progress.hasMissing) {
+                    const retryStatus = Calculation.getRetryStatus();
+                    const missingPreview = progress.missingIndexes.slice(0, 5).join(', ');
+                    const retryQueue = retryStatus.retryQueue;
+                    document.getElementById('status-label').innerText += ` / 欠損: ${missingPreview}`;
+                    log(`⚠️ 再読取対象: ${missingPreview}`);
+                    log(`🔁 再送キュー: ${retryQueue.join(', ')}`);
+                    log(`🎯 次の再送対象: chunk ${retryStatus.nextRetryIndex}`);
+                }
 
                 if (result.isComplete) {
                     log(`🎉【全件受信完了！】`);
@@ -593,6 +636,11 @@
 
                     stopTransmission();
                 }
+                return;
+            }
+
+            if (result.reason === 'duplicate') {
+                log('ℹ️ 重複QRを無視しました');
             }
         }
 

@@ -24,6 +24,18 @@ const Calculation = {
         return (hash >>> 0).toString(16).padStart(8, '0');
     },
 
+    escapePayload(payload) {
+        return encodeURIComponent(String(payload));
+    },
+
+    unescapePayload(payload) {
+        try {
+            return decodeURIComponent(String(payload));
+        } catch (error) {
+            return String(payload);
+        }
+    },
+
     validateChecksum(payload, checksum) {
         if (!checksum) return true;
         if (typeof checksum !== 'string') return false;
@@ -33,17 +45,19 @@ const Calculation = {
     preparePackets(rawData) {
         if (!rawData) return [];
 
-        const totalChunks = Math.ceil(rawData.length / this.config.chunkSize) || 1;
+        const text = String(rawData);
+        const totalChunks = Math.ceil(text.length / this.config.chunkSize) || 1;
         const packets = [];
         const protoFlag = this.config.protocol.toUpperCase();
         const gridFlag = `${this.config.gridSize}x${this.config.gridSize}`;
 
         for (let i = 0; i < totalChunks; i++) {
             const start = i * this.config.chunkSize;
-            const payload = rawData.substring(start, start + this.config.chunkSize);
-            const checksum = this.checksumFor(payload);
+            const payload = text.substring(start, start + this.config.chunkSize);
+            const encodedPayload = this.escapePayload(payload);
+            const checksum = this.checksumFor(encodedPayload);
 
-            const header = `${protoFlag}|${gridFlag}|${i + 1}/${totalChunks}|${payload}|${checksum}`;
+            const header = `${protoFlag}|${gridFlag}|${i + 1}/${totalChunks}|${encodedPayload}|${checksum}`;
 
             packets.push({
                 chunkIdx: i + 1,
@@ -52,7 +66,8 @@ const Calculation = {
                 gridSize: gridFlag,
                 headerText: header,
                 payload: payload,
-                checksum: checksum
+                checksum: checksum,
+                encodedPayload: encodedPayload
             });
         }
 
@@ -60,7 +75,7 @@ const Calculation = {
     },
 
     processReceivedPacket(rawHeader) {
-        // 例: "QR|2x2|1/3|Hello|A1B2C3D4" のパース
+        // 例: "QR|2x2|1/3|Hello%20World|A1B2C3D4" のパース
         const parts = rawHeader.split('|');
         if (parts.length < 4) return null;
 
@@ -68,9 +83,10 @@ const Calculation = {
         const gridSizeStr = parts[1];
         const progressStr = parts[2];
         const maybeChecksum = /^[0-9a-fA-F]{8}$/.test(parts[parts.length - 1]) ? parts.pop() : null;
-        const payload = parts.slice(3).join('|');
+        const encodedPayload = parts.slice(3).join('|');
+        const payload = this.unescapePayload(encodedPayload);
 
-        if (maybeChecksum && !this.validateChecksum(payload, maybeChecksum)) {
+        if (maybeChecksum && !this.validateChecksum(encodedPayload, maybeChecksum)) {
             return null;
         }
 
@@ -104,7 +120,11 @@ const Calculation = {
             };
         }
 
-        return { isNew: false };
+        if (this.receiverState.chunks[currentIdx] === payload) {
+            return { isNew: false, reason: 'duplicate' };
+        }
+
+        return { isNew: false, reason: 'replaced' };
     },
 
     assembleData() {
@@ -114,6 +134,42 @@ const Calculation = {
             result += this.receiverState.chunks[i] || "";
         }
         return result;
+    },
+
+    getProgressSummary() {
+        const totalChunks = this.receiverState.totalExpected || 0;
+        const receivedCount = Object.keys(this.receiverState.chunks).length;
+        const missingIndexes = [];
+
+        for (let i = 1; i <= totalChunks; i++) {
+            if (!(i in this.receiverState.chunks)) {
+                missingIndexes.push(i);
+            }
+        }
+
+        return {
+            totalChunks: totalChunks,
+            receivedCount: receivedCount,
+            missingCount: missingIndexes.length,
+            missingIndexes: missingIndexes,
+            hasMissing: missingIndexes.length > 0
+        };
+    },
+
+    buildRetryQueue() {
+        const summary = this.getProgressSummary();
+        return summary.missingIndexes;
+    },
+
+    getRetryStatus() {
+        const retryQueue = this.buildRetryQueue();
+        const status = {
+            isRetryRequired: retryQueue.length > 0,
+            retryQueue: retryQueue,
+            nextRetryIndex: retryQueue[0] ?? null,
+            nextRetryChunk: retryQueue[0] ? this.receiverState.chunks[retryQueue[0]] ?? null : null
+        };
+        return status;
     },
 
     resetReceiver() {
